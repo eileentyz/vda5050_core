@@ -535,4 +535,30 @@ TEST(OrderAcceptanceTest, AcceptedOrderIsNotReprocessedOnLaterTicks)
   EXPECT_EQ(state_after_second.node_states[1].node_id, "should_not_be_cleared");
 }
 
+// Test 12: An accepted order is persisted in full (with its actions) so action
+// strategies can reach the node/edge Action objects the state arrays drop.
+TEST(OrderAcceptanceTest, PersistsOrderOnAccept)
+{
+  OrderAcceptance strategy;
+  auto context = make_context();
+
+  types::Order order;
+  order.order_id = "o1";
+  order.order_update_id = 0;
+  auto node0 = make_node("node_0", 0);
+  node0.actions.push_back(make_action("act_0"));
+  order.nodes.push_back(node0);
+
+  context->provider()->push<OrderUpdate>(order);
+  strategy.step(context);
+
+  auto execution = context->get_resource<OrderExecutionResource>();
+  const auto active_order = execution->get_order();
+  EXPECT_EQ(active_order.order_id, "o1");
+  ASSERT_EQ(active_order.nodes.size(), 1u);
+  ASSERT_EQ(active_order.nodes.front().actions.size(), 1u);
+  EXPECT_EQ(active_order.nodes.front().actions.front().action_id, "act_0");
+}
+
+
 }  // namespace

@@ -53,6 +53,9 @@ public:
   void set_state(types::State state);
 
   /// \brief Return a copy of the full accepted order used for execution.
+  ///
+  /// Carries the full node/edge `Action` objects that the state arrays do not.
+  /// Empty until the first order is accepted.
   types::Order get_order() const;
 
   /// \brief Replace the full accepted order used for execution.
@@ -78,8 +81,9 @@ private:
 
   /// \brief Full accepted order payload retained for execution dispatch.
   ///
-  /// State node/edge arrays are reporting views and intentionally omit some
-  /// execution fields from Order nodes/edges.
+  /// Persisted by OrderAcceptance so strategies can reach the full node/edge
+  /// `Action` objects (type, parameters, blockingType) that the state arrays do
+  /// not carry. Empty until the first order is accepted.
   types::Order order_;
 };
 
