@@ -25,7 +25,10 @@
 #include <optional>
 #include <string>
 
+#include "vda5050_core/client/events/edge_entered.hpp"
+#include "vda5050_core/client/events/edge_left.hpp"
 #include "vda5050_core/client/events/navigate_to_node.hpp"
+#include "vda5050_core/client/events/node_traversed.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
 #include "vda5050_core/client/updates/node_reached.hpp"
 #include "vda5050_core/execution/event_queue.hpp"
@@ -49,9 +52,23 @@ struct Dispatch
   const types::Edge* via_edge = nullptr;
 };
 
+struct EdgeRef
+{
+  std::string edge_id;
+  uint32_t sequence_id = 0;
+};
+
+struct TraversalAdvance
+{
+  std::string node_id;
+  uint32_t sequence_id = 0;
+  std::optional<EdgeRef> left_edge;
+};
+
 // Updates the state when a node is reached.
-// Returns false if the node is unknown, already handled, or out of order.
-bool advance_to_reached(types::State& state, const NodeReachedUpdate& reached)
+// Returns nullopt if the node is unknown, already handled, or out of order.
+std::optional<TraversalAdvance> advance_to_reached(
+  types::State& state, const NodeReachedUpdate& reached)
 {
   // Find the reached node in the current base.
   auto node_it = std::find_if(
@@ -62,7 +79,7 @@ bool advance_to_reached(types::State& state, const NodeReachedUpdate& reached)
     });
   if (node_it == state.node_states.end())
   {
-    return false;
+    return std::nullopt;
   }
 
   // Only accept the next expected node.
@@ -71,27 +88,35 @@ bool advance_to_reached(types::State& state, const NodeReachedUpdate& reached)
     [&](const types::NodeState& n) {
       return n.sequence_id < reached.sequence_id;
     });
-  if (!is_next_expected) return false;
+  if (!is_next_expected) return std::nullopt;
+
+  TraversalAdvance advance;
+  advance.node_id = reached.node_id;
+  advance.sequence_id = reached.sequence_id;
 
   // Update last reached node and remove it from pending state.
   state.last_node_id = reached.node_id;
   state.last_node_sequence_id = reached.sequence_id;
   state.node_states.erase(node_it);
 
-  // Remove the incoming edge.
+  // Remove the incoming edge and remember it for the edge-left event.
   if (reached.sequence_id > 0)
   {
     const uint32_t incoming_edge_seq = reached.sequence_id - 1;
-    state.edge_states.erase(
-      std::remove_if(
-        state.edge_states.begin(), state.edge_states.end(),
-        [&](const types::EdgeState& e) {
-          return e.sequence_id == incoming_edge_seq;
-        }),
-      state.edge_states.end());
+    auto incoming_it = std::find_if(
+      state.edge_states.begin(), state.edge_states.end(),
+      [&](const types::EdgeState& e) {
+        return e.sequence_id == incoming_edge_seq;
+      });
+    if (incoming_it != state.edge_states.end())
+    {
+      advance.left_edge =
+        EdgeRef{incoming_it->edge_id, incoming_it->sequence_id};
+      state.edge_states.erase(incoming_it);
+    }
   }
 
-  return true;
+  return advance;
 }
 
 // Updates new_base_request from the base ahead of the last reached node.
@@ -198,9 +223,11 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
 
   // Apply each cached node-reached update only once.
   bool state_changed = false;
+  std::optional<TraversalAdvance> advance;
   if (reached && reached != last_processed_)
   {
-    state_changed = advance_to_reached(state, *reached);
+    advance = advance_to_reached(state, *reached);
+    state_changed = advance.has_value();
     last_processed_ = reached;
   }
 
@@ -224,6 +251,20 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
 
   if (state_changed) execution->set_state(std::move(state));
 
+  if (advance)
+  {
+    engine()->emit<NodeTraversedEvent>(
+      execution::Priority::NORMAL, advance->node_id, advance->sequence_id);
+    engine()->step();
+    if (advance->left_edge)
+    {
+      engine()->emit<EdgeLeftEvent>(
+        execution::Priority::NORMAL, advance->left_edge->edge_id,
+        advance->left_edge->sequence_id);
+      engine()->step();
+    }
+  }
+
   if (!dispatch) return;
 
   if (
@@ -244,8 +285,15 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
 
   engine()->emit<NavigateToNodeEvent>(
     execution::Priority::NORMAL, std::move(target), std::move(via_edge));
-
   engine()->step();
+
+  if (dispatch->via_edge)
+  {
+    engine()->emit<EdgeEnteredEvent>(
+      execution::Priority::NORMAL, dispatch->via_edge->edge_id,
+      dispatch->via_edge->sequence_id);
+    engine()->step();
+  }
 }
 
 }  // namespace client
