@@ -36,7 +36,8 @@ namespace client {
 
 namespace {
 
-// Locate the action state for an action_id within the working state.
+// Accepted orders are expected to have unique action_ids, so action_id is used
+// as the lookup key for action_states.
 types::ActionState* find_action_state(
   types::State& state, const std::string& action_id)
 {
@@ -55,8 +56,19 @@ bool is_active(types::ActionStatus status)
          status == types::ActionStatus::PAUSED;
 }
 
-// blockingType of an action looked up by id in the accepted order. Defaults to
-// NONE when the id is unknown (the least restrictive, fail-open choice).
+// The only statuses an executor may report: RUNNING (long-running action
+// started, completion reported later), or FINISHED/FAILED (completed
+// synchronously). Anything else would corrupt the scheduler state.
+bool is_valid_executor_result(types::ActionStatus status)
+{
+  return status == types::ActionStatus::RUNNING ||
+         status == types::ActionStatus::FINISHED ||
+         status == types::ActionStatus::FAILED;
+}
+
+// blockingType of an action looked up by id in the accepted order. Unknown ids
+// should not occur for accepted orders; treat them as NONE so stale state does
+// not block the scheduler indefinitely.
 types::BlockingType blocking_type_of(
   const types::Order& order, const std::string& action_id)
 {
@@ -182,7 +194,7 @@ void OrderActions::on_node_reached(const NodeReachedEvent& event)
 {
   if (!execution_) return;
 
-  const auto order = execution_->get_active_order();
+  const auto order = execution_->get_order();
   for (const auto& node : order.nodes)
   {
     if (node.node_id == event.node_id && node.sequence_id == event.sequence_id)
@@ -198,7 +210,7 @@ void OrderActions::on_edge_entered(const EdgeEnteredEvent& event)
 {
   if (!execution_) return;
 
-  const auto order = execution_->get_active_order();
+  const auto order = execution_->get_order();
   for (const auto& edge : order.edges)
   {
     if (edge.edge_id == event.edge_id && edge.sequence_id == event.sequence_id)
@@ -214,7 +226,7 @@ void OrderActions::on_edge_left(const EdgeLeftEvent& event)
 {
   if (!execution_) return;
 
-  const auto order = execution_->get_active_order();
+  const auto order = execution_->get_order();
   for (const auto& edge : order.edges)
   {
     if (edge.edge_id == event.edge_id && edge.sequence_id == event.sequence_id)
@@ -247,7 +259,7 @@ void OrderActions::pump()
   while (true)
   {
     auto state = execution_->get_state();
-    const auto order = execution_->get_active_order();
+    const auto order = execution_->get_order();
 
     // Drop entries that are no longer WAITING (already started elsewhere, or
     // never seeded), keeping re-delivery of the same signal idempotent.
@@ -306,12 +318,23 @@ void OrderActions::start_action(const types::Action& action)
   // may itself read the execution resource.
   const ActionExecution result = executor_(action);
 
+  // Defend against an executor returning a status that would corrupt the
+  // scheduler (e.g. WAITING/PAUSED): coerce anything unexpected to FAILED.
+  types::ActionStatus status = result.status;
+  if (!is_valid_executor_result(status))
+  {
+    VDA5050_WARN_STREAM(
+      "OrderActions: executor returned invalid status for action '"
+      << action.action_id << "'; treating as FAILED");
+    status = types::ActionStatus::FAILED;
+  }
+
   {
     types::State state = execution_->get_state();
     auto* action_state = find_action_state(state, action.action_id);
     if (action_state)
     {
-      action_state->action_status = result.status;
+      action_state->action_status = status;
       action_state->result_description = result.result_description;
     }
     execution_->set_state(std::move(state));
@@ -322,8 +345,9 @@ void OrderActions::stop_actions(const std::vector<types::Action>& actions)
 {
   if (actions.empty()) return;
 
-  // Edge actions are time-bound: leaving the edge stops any that are still
-  // active. Finished/failed/waiting actions are left untouched.
+  // Edge actions are time-bound: for this first synchronous implementation an
+  // active edge-scoped action is considered complete when the AGV leaves the
+  // edge. Finished/failed/waiting actions are left untouched.
   types::State state = execution_->get_state();
   for (const auto& action : actions)
   {
@@ -331,7 +355,7 @@ void OrderActions::stop_actions(const std::vector<types::Action>& actions)
     if (action_state && is_active(action_state->action_status))
     {
       action_state->action_status = types::ActionStatus::FINISHED;
-      action_state->result_description = "stopped: edge left";
+      action_state->result_description = "completed: edge left";
     }
   }
   execution_->set_state(std::move(state));

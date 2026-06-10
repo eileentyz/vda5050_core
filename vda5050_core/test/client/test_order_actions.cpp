@@ -115,7 +115,8 @@ void accept_order(
   for (const auto& node : order.nodes) seed(node.actions);
   for (const auto& edge : order.edges) seed(edge.actions);
   execution->set_state(std::move(state));
-  execution->set_active_order(order);
+  execution->set_order(order);
+  execution->set_executing_order(true);
 }
 
 std::optional<types::ActionState> action_state_of(
@@ -260,7 +261,7 @@ TEST(OrderActionsTest, StopsRunningEdgeActionsOnLeft)
   const auto state = action_state_of(context, "a1");
   ASSERT_TRUE(state.has_value());
   EXPECT_EQ(state->action_status, types::ActionStatus::FINISHED);
-  EXPECT_EQ(state->result_description.value(), "stopped: edge left");
+  EXPECT_EQ(state->result_description.value(), "completed: edge left");
 }
 
 // Test 6: Re-delivering the same signal does not execute an action twice.

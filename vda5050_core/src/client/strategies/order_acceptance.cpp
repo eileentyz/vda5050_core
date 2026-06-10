@@ -247,6 +247,9 @@ void OrderAcceptance::step(std::shared_ptr<execution::ContextInterface> context)
         apply_new_order(state, current_order, order);
       }
       execution->set_state(std::move(state));
+      // Persist the accepted order so action/traversal strategies can access
+      // the full node/edge Action objects that State.action_states does not
+      // carry. On updates this stores the merged active order.
       execution->set_order(std::move(current_order));
       execution->set_executing_order(true);
       break;

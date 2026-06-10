@@ -70,8 +70,8 @@ using ActionExecutor = std::function<ActionExecution(const types::Action&)>;
 /// - on edge left: stop the edge's still-running (time-bound) actions.
 ///
 /// The full `Action` objects (type, parameters, blockingType) are read from the
-/// persisted accepted order via `get_active_order()`; the state arrays only
-/// carry `actionState`s. Work is driven synchronously from the source engine's
+/// persisted accepted order via `get_order()`; the state arrays only carry
+/// `actionState`s. Work is driven synchronously from the source engine's
 /// callbacks, so each event is handled exactly once in cascade order.
 ///
 /// This provides basic blocking-aware *scheduling* of actions against each

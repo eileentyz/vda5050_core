@@ -560,5 +560,4 @@ TEST(OrderAcceptanceTest, PersistsOrderOnAccept)
   EXPECT_EQ(active_order.nodes.front().actions.front().action_id, "act_0");
 }
 
-
 }  // namespace
