@@ -2,7 +2,7 @@
 
 Drive a simulated TurtleBot3 from **VDA5050 orders**. A master sends coffee
 orders over MQTT; the robot navigates with **Nav2**, picks up the coffee, and
-delivers it — all driven by the `vda5050_core` C++ runtime.
+delivers it.
 
 `vda5050_core` owns the protocol (MQTT, order traversal, action scheduling,
 state publishing). This example only supplies robot behaviour: turn each node
@@ -37,8 +37,6 @@ into the published State.
 - **Live position** — `/amcl_pose` is mirrored into `State.agvPosition`, so the
   master sees the robot move, not just arrive.
 
-> Not implemented yet: battery state.
-
 ## Files
 
 | File | Side | Role |
@@ -52,7 +50,7 @@ into the published State.
   `turtlebot3_navigation2`, `nav2_simple_commander`
 - **mosquitto** broker and **paho-mqtt** (`pip install paho-mqtt`)
 - The demo map of `turtlebot3_house` is bundled at `maps/house_office_map.yaml`
-  (next to these scripts) — no need to create one
+  (next to these scripts) — no need to create one!
 - This workspace built and sourced (see below)
 
 Quick check that the tooling is present:
@@ -89,13 +87,13 @@ Open five terminals.
 export TURTLEBOT3_MODEL=burger
 ```
 
-**1. Gazebo simulation**
+**Terminal 1 - Gazebo simulation**
 ```bash
 export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
 ```
 
-**2. Nav2 + AMCL with the saved map**
+**Terminal 2 - Nav2 + AMCL with the saved map**
 ```bash
 export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
@@ -105,19 +103,19 @@ ros2 launch turtlebot3_navigation2 navigation2.launch.py \
 > **In RViz, click "2D Pose Estimate"** and place it at the robot's real
 > location so AMCL localizes. Nothing drives until this is done.
 
-**3. MQTT broker**
+**Terminal 3 - MQTT broker**
 ```bash
 mosquitto -p 1883
 ```
 
-**4. AGV client** (waits for Nav2, then for orders)
+**Terminal 4 - AGV client** (waits for Nav2, then for orders)
 ```bash
 source ~/vda5050_core/install/setup.bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
 python3 example_turtlebot3_client.py
 ```
 
-**5. Master** (publishes the coffee orders)
+**Terminal 5 - Master** (publishes the coffee orders)
 ```bash
 source ~/vda5050_core/install/setup.bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
@@ -156,7 +154,7 @@ the master waits until the State reports the robot fully idle:
 - no `actionStates` still `WAITING / INITIALIZING / RUNNING / PAUSED`.
 
 That last condition is what makes the next order wait for the HARD `drop` to
-finish — not just for navigation. A 180 s per-job timeout is the safety net.
+finish, not just for navigation. A 180 s per-job timeout is the safety net.
 
 ### Customize
 
