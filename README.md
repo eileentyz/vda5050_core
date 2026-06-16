@@ -4,7 +4,7 @@ A full end-to-end demo: a master sends multi-node coffee orders, and a
 simulated TurtleBot3 navigates with Nav2, picks up the coffee, delivers it,
 and returns to base (one order at a time).
 
-**Full guide (how it works, customizing, troubleshooting):**
+**Full guide:**
 [`vda5050_core_py/turtlebot3/ReadMe.md`](vda5050_core_py/turtlebot3/ReadMe.md)
 
 ### Quick start
@@ -22,18 +22,26 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-**Run it all in one tmux session:**
+**Recommended: run everything in one tmux session**
 
 ```bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
 ./run_demo.sh
 ```
 
-This opens windows for sim, Nav2 and the broker, plus a `vda5050` window showing
-the **client and master together** (client left, master right) so you can watch
-the order/response flow side by side. You land on the master pane with its command
-pre-typed. Set the **2D Pose Estimate** in RViz, wait for the client (left pane) to
-print `[tb3] runtime started`, then press **Enter** in the master pane.
+This starts the Gazebo simulation, Nav2, the MQTT broker, the AGV client, and the master in one tmux session.
+The vda5050 tmux window shows the client and master side by side:
+
+- **left pane:** TurtleBot3 AGV client
+- **right pane:** VDA5050 master
+
+After the session starts:
+1. In RViz, click **2D Pose Estimate** and set the robot’s initial pose at its actual location.
+2. Wait for the client pane to print:
+```bash
+   [tb3] runtime started
+```
+4. Press **Enter** in the master pane to start sending the coffee delivery orders.
 
 **Stop everything:**
 
