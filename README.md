@@ -1,7 +1,7 @@
 ## Featured example: VDA5050 → TurtleBot3 coffee delivery
 
 A full end-to-end demo: a master sends multi-node coffee orders, and a
-simulated TurtleBot3 navigates with **Nav2**, picks up the coffee, delivers it,
+simulated TurtleBot3 navigates with Nav2, picks up the coffee, delivers it,
 and returns to base (one order at a time).
 
 **Full guide (how it works, customizing, troubleshooting):**
@@ -11,7 +11,7 @@ and returns to base (one order at a time).
 
 **Prerequisites:** ROS 2 Jazzy + Gazebo (gz), `turtlebot3_gazebo`,
 `turtlebot3_navigation2`, `nav2_simple_commander`, `mosquitto`, `paho-mqtt`. The
-demo map of `turtlebot3_house` is **bundled** at
+demo map of `turtlebot3_house` is bundled at
 `vda5050_core_py/turtlebot3/maps/`.
 
 **Build once:**
