@@ -59,6 +59,13 @@ public:
   /// \brief Register the whole-base callback (full plan on order acceptance).
   void on_base(BaseCallback callback);
 
+  /// \brief Register the executor that performs node/edge actions.
+  ///
+  /// The core hands each triggered action to this hook; the integrator
+  /// dispatches on `action_type`. The core never interprets action types
+  /// itself. Without an executor, actions stay WAITING.
+  void on_action(client::ActionExecutor executor);
+
   /// \brief Access the Reporter for arrival + state reporting.
   std::shared_ptr<Reporter> reporter();
 

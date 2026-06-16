@@ -19,6 +19,7 @@
 
 #include <vda5050_core/adapter/reporter.hpp>
 #include <vda5050_core/adapter/runtime.hpp>
+#include <vda5050_core/client/strategies/order_actions.hpp>
 #include <vda5050_core/types/action.hpp>
 #include <vda5050_core/types/action_parameter.hpp>
 #include <vda5050_core/types/action_state.hpp>
@@ -78,6 +79,22 @@ PYBIND11_MODULE(_core, m)
     .def_readwrite("action_description", &types::ActionState::action_description)
     .def_readwrite("action_status", &types::ActionState::action_status)
     .def_readwrite("result_description", &types::ActionState::result_description);
+
+  // Return value of an action executor: the resulting actionStatus
+  // (FINISHED/FAILED for a synchronous action, RUNNING if completion is
+  // reported later) plus an optional result_description.
+  py::class_<client::ActionExecution>(m, "ActionExecution")
+    .def(
+      py::init([](types::ActionStatus status,
+                  std::optional<std::string> result_description) {
+        return client::ActionExecution{status, std::move(result_description)};
+      }),
+      py::arg("status") = types::ActionStatus::FINISHED,
+      py::arg("result_description") = py::none(),
+      "Outcome to return from an on_action executor. Defaults to FINISHED.")
+    .def_readwrite("status", &client::ActionExecution::status)
+    .def_readwrite(
+      "result_description", &client::ActionExecution::result_description);
 
   py::class_<types::BatteryState>(m, "BatteryState")
     .def(py::init<>())
@@ -211,6 +228,13 @@ PYBIND11_MODULE(_core, m)
       "Register the whole-base callback. Signature: `Callable[[Order], None]` — "
       "the full released base of a newly accepted order, for robots that plan a "
       "whole route at once.")
+    .def(
+      "on_action", &adapter::RobotRuntime::on_action, py::arg("callback"),
+      "Register the action executor. Signature: "
+      "`Callable[[Action], ActionExecution]` — perform the action (dispatch on "
+      "action.action_type) and return its outcome. Invoked on the C++ spin "
+      "thread with blocking-aware scheduling (HARD/SOFT/NONE) handled by the "
+      "core. Without an executor, actions stay WAITING.")
     .def(
       "reporter", &adapter::RobotRuntime::reporter,
       "Return the Reporter for arrival + state reporting.")

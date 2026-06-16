@@ -57,6 +57,11 @@ void RobotRuntime::on_base(BaseCallback callback)
   adapter_->on_base(std::move(callback));
 }
 
+void RobotRuntime::on_action(client::ActionExecutor executor)
+{
+  adapter_->on_action(std::move(executor));
+}
+
 std::shared_ptr<Reporter> RobotRuntime::reporter()
 {
   return adapter_->reporter();

@@ -112,6 +112,7 @@ Adapter::Adapter(std::shared_ptr<execution::ProtocolAdapter> protocol_adapter)
   auto auto_start_kick = std::make_shared<AutoStartKick>();
   auto traversal = std::make_shared<client::OrderTraversal>();
   auto actions = client::OrderActions::make(traversal->engine());
+  actions_ = actions;
   auto reporting = std::make_shared<client::StateReporting>();
 
   // Whole-base callback fires from the start-kick, which already detects a
@@ -177,6 +178,13 @@ void Adapter::on_base(BaseCallback callback)
 {
   std::lock_guard<std::mutex> lock(callback_mutex_);
   base_callback_ = std::move(callback);
+}
+
+void Adapter::on_action(client::ActionExecutor executor)
+{
+  // OrderActions owns the executor and invokes it on the spin thread; no
+  // callback_mutex_ needed since set_executor stores it directly.
+  if (actions_) actions_->set_executor(std::move(executor));
 }
 
 std::shared_ptr<Reporter> Adapter::reporter()

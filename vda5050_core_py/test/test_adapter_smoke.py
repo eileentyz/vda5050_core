@@ -16,6 +16,7 @@ def test_module_surface():
     assert hasattr(vda, "Order")
     assert hasattr(vda, "NodePosition")
     assert hasattr(vda, "AGVPosition")
+    assert hasattr(vda, "ActionExecution")
     # Removed building blocks are no longer exposed to Python.
     assert not hasattr(vda, "ProtocolAdapter")
     assert not hasattr(vda, "Adapter")
@@ -90,3 +91,13 @@ def test_runtime_construct_without_starting():
     # never start the loop.
     runtime.on_navigate(lambda node, edge: None)
     runtime.on_base(lambda order: None)
+    runtime.on_action(lambda action: vda.ActionExecution(vda.ActionStatus.FINISHED))
+
+
+def test_action_execution_construct():
+    # Default is a successful (FINISHED) outcome.
+    assert vda.ActionExecution().status == vda.ActionStatus.FINISHED
+
+    ex = vda.ActionExecution(vda.ActionStatus.FAILED, "boom")
+    assert ex.status == vda.ActionStatus.FAILED
+    assert ex.result_description == "boom"

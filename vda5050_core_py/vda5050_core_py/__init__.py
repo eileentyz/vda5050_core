@@ -32,6 +32,7 @@ import time
 
 from ._core import (
     Action,
+    ActionExecution,
     ActionParameter,
     ActionState,
     ActionStatus,
@@ -111,6 +112,7 @@ def run_until_signal(runtime, poll_interval: float = 0.1) -> None:
 
 __all__ = [
     "Action",
+    "ActionExecution",
     "ActionParameter",
     "ActionState",
     "ActionStatus",

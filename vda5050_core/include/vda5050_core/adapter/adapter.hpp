@@ -30,6 +30,7 @@
 #include "vda5050_core/adapter/reporter.hpp"
 #include "vda5050_core/client/contexts/agv_context.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
+#include "vda5050_core/client/strategies/order_actions.hpp"
 #include "vda5050_core/execution/handler.hpp"
 #include "vda5050_core/execution/protocol_adapter.hpp"
 #include "vda5050_core/types/edge.hpp"
@@ -79,6 +80,14 @@ public:
   /// \brief Register the whole-base callback (full plan on order acceptance).
   void on_base(BaseCallback callback);
 
+  /// \brief Register the executor that performs a node/edge action.
+  ///
+  /// Forwarded to the OrderActions strategy. The core dispatches each
+  /// triggered action to this hook (keyed on `action_type` by the caller) and
+  /// records the returned status into the matching actionState. Without an
+  /// executor, actions remain WAITING.
+  void on_action(client::ActionExecutor executor);
+
   /// \brief Access the Reporter for arrival + state reporting.
   std::shared_ptr<Reporter> reporter();
 
@@ -109,6 +118,7 @@ private:
 
   std::shared_ptr<client::AGVContext> context_;
   std::shared_ptr<client::OrderExecutionResource> execution_;
+  std::shared_ptr<client::OrderActions> actions_;
   std::shared_ptr<execution::Handler> handler_;
   std::shared_ptr<Reporter> reporter_;
 
