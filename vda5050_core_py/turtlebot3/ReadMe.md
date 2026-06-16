@@ -56,7 +56,9 @@ into the published State.
 Quick check that the tooling is present:
 
 ```bash
-ros2 pkg prefix turtlebot3_gazebo turtlebot3_navigation2 nav2_simple_commander
+ros2 pkg prefix turtlebot3_gazebo
+ros2 pkg prefix turtlebot3_navigation2
+ros2 pkg prefix nav2_simple_commander
 which mosquitto
 ```
 
