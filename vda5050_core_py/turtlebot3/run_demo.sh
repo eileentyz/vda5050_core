@@ -94,7 +94,7 @@ echo "    3: vda5050 [left: client | right: master]"
 echo
 echo "  Switch windows: Ctrl-b then 0/1/2/3, or Ctrl-b then w"
 echo "  Switch panes:   Ctrl-b then o, or Ctrl-b then arrow key"
-echo "  Stop demo:      tmux kill-session -t $SESSION"
+echo "  Stop demo:      ./stop_demo.sh"
 echo
 
 # Attach, unless already inside tmux.
