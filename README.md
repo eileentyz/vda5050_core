@@ -22,7 +22,28 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-**Run (5 terminals)**
+**Run it all in one tmux session:**
+
+```bash
+cd ~/vda5050_core/vda5050_core_py/turtlebot3
+./run_demo.sh
+```
+
+This opens windows for sim, Nav2 and the broker, plus a `vda5050` window showing
+the **client and master together** (client left, master right) so you can watch
+the order/response flow side by side. You land on the master pane with its command
+pre-typed. Set the **2D Pose Estimate** in RViz, wait for the client (left pane) to
+print `[tb3] runtime started`, then press **Enter** in the master pane.
+
+**Stop everything:**
+
+```bash
+cd ~/vda5050_core/vda5050_core_py/turtlebot3
+./stop_demo.sh
+```
+
+<details>
+<summary>Or run it manually (5 terminals)</summary>
 
 ```bash
 # Terminal 1 - Gazebo simulation

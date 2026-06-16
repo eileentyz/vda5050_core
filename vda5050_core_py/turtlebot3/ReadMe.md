@@ -81,9 +81,28 @@ source install/setup.bash
 ```
 </details>
 
-## Run (5 terminals)
+## Run
 
-Open five terminals.
+### Quick: one tmux session
+
+After building, launch all five processes at once:
+
+```bash
+./run_demo.sh
+```
+
+This opens a `tmux` session with windows `sim | nav2 | broker`, plus a `vda5050`
+window showing the **client (left pane) and master (right pane) together** so you
+can watch orders dispatch and the robot react side by side. You land on the
+master pane with the publish command **pre-typed but not run**. Set the **2D Pose
+Estimate** in RViz, wait for the client (left pane) to print
+`[tb3] runtime started`, then press **Enter** in the master pane.
+
+Stop everything with `./stop_demo.sh`.
+
+### Manual: five terminals
+
+Prefer separate terminals? Run each block in its own shell.
 
 ```bash
 export TURTLEBOT3_MODEL=burger
