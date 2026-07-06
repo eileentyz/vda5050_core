@@ -23,7 +23,6 @@
 #include <memory>
 #include <optional>
 
-#include "vda5050_core/client/contexts/agv_context.hpp"
 #include "vda5050_core/client/events/navigate_to_node.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
 #include "vda5050_core/client/updates/node_reached.hpp"
@@ -154,20 +153,15 @@ void OrderTraversal::init(
 
 void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
 {
-  auto order_context = std::dynamic_pointer_cast<AGVContext>(context);
-  if (!order_context)
-  {
-    VDA5050_WARN_STREAM("OrderTraversal: context is not an AGVContext");
-    return;
-  }
+  if (!context) return;
 
-  auto execution = order_context->get_resource<OrderExecutionResource>();
+  auto execution = context->get_resource<OrderExecutionResource>();
   if (!execution) return;
 
   // Only run traversal while an order is active.
   if (!execution->is_executing_order()) return;
 
-  auto reached = order_context->get_update<NodeReachedUpdate>();
+  auto reached = context->get_update<NodeReachedUpdate>();
 
   types::State state = execution->get_state();
 
