@@ -377,4 +377,103 @@ TEST(OrderTraversalTest, DoesNothingWhenNotExecuting)
   EXPECT_TRUE(state.last_node_id.empty());
 }
 
+// Test 13: Traversal resets its cached index when a new order update arrives.
+TEST(OrderTraversalTest, ResetsCachedIndexOnOrderUpdate)
+{
+  OrderTraversal strategy;
+  auto context = make_context();
+
+  seed(
+    context,
+    {
+      node_state("node_2", 2, true),
+      node_state("node_4", 4, true),
+    },
+    {
+      edge_state("e1", 1),
+      edge_state("e3", 3),
+    });
+
+  auto execution = context->get_resource<OrderExecutionResource>();
+
+  std::vector<uint32_t> dispatched_sequences;
+  strategy.engine()->on<NavigateToNodeEvent>(
+    [&](std::shared_ptr<NavigateToNodeEvent> event) {
+      dispatched_sequences.push_back(event->target.sequence_id);
+    });
+
+  // Initial order dispatches node_2.
+  strategy.step(context);
+
+  ASSERT_EQ(dispatched_sequences.size(), 1u);
+  EXPECT_EQ(dispatched_sequences.back(), 2u);
+
+  // Simulate an order update with a changed node-state range.
+  types::State state = execution->get_state();
+  state.order_update_id = 1;
+  state.node_states = {
+    node_state("node_4", 4, true),
+    node_state("node_6", 6, true),
+  };
+  state.edge_states = {
+    edge_state("e3", 3),
+    edge_state("e5", 5),
+  };
+  execution->set_state(std::move(state));
+
+  strategy.step(context);
+
+  ASSERT_EQ(dispatched_sequences.size(), 2u);
+  EXPECT_EQ(dispatched_sequences.back(), 4u);
+}
+
+// Test 14: Traversal resets its cached index when a new order arrives.
+TEST(OrderTraversalTest, ResetsCachedIndexForNewOrder)
+{
+  OrderTraversal strategy;
+  auto context = make_context();
+
+  seed(
+    context,
+    {
+      node_state("a_node_2", 2, true),
+      node_state("a_node_4", 4, true),
+    },
+    {
+      edge_state("a_edge_1", 1),
+      edge_state("a_edge_3", 3),
+    });
+
+  auto execution = context->get_resource<OrderExecutionResource>();
+
+  std::vector<std::string> dispatched_nodes;
+  strategy.engine()->on<NavigateToNodeEvent>(
+    [&](std::shared_ptr<NavigateToNodeEvent> event) {
+      dispatched_nodes.push_back(event->target.node_id);
+    });
+
+  strategy.step(context);
+
+  ASSERT_EQ(dispatched_nodes.size(), 1u);
+  EXPECT_EQ(dispatched_nodes.back(), "a_node_2");
+
+  types::State new_order;
+  new_order.order_id = "o2";
+  new_order.order_update_id = 0;
+  new_order.node_states = {
+    node_state("b_node_2", 2, true),
+    node_state("b_node_4", 4, true),
+  };
+  new_order.edge_states = {
+    edge_state("b_edge_1", 1),
+    edge_state("b_edge_3", 3),
+  };
+  execution->set_state(std::move(new_order));
+
+  strategy.step(context);
+
+  ASSERT_EQ(dispatched_nodes.size(), 2u);
+  EXPECT_EQ(dispatched_nodes.back(), "b_node_2");
+}
+
 }  // namespace

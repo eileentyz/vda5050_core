@@ -19,6 +19,7 @@
 #ifndef VDA5050_CORE__CLIENT__STRATEGIES__ORDER_TRAVERSAL_HPP_
 #define VDA5050_CORE__CLIENT__STRATEGIES__ORDER_TRAVERSAL_HPP_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -59,6 +60,15 @@ private:
 
   /// \brief Order ID for the last dispatched node.
   std::string last_dispatched_order_id_;
+
+  /// \brief Cached search position for the next node in node_states.
+  std::size_t next_node_index_ = 0;
+
+  /// \brief Order ID associated with next_node_index_.
+  std::string next_node_order_id_;
+
+  /// \brief Order update ID associated with next_node_index_.
+  uint32_t next_node_order_update_id_ = 0;
 };
 
 }  // namespace client

@@ -19,6 +19,7 @@
 #include "vda5050_core/client/strategies/order_traversal.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -114,13 +115,25 @@ void refresh_new_base_request(types::State& state)
 
 // Finds the next node after the last reached node.
 // Returns nullopt if there is no node ahead or the next node is still horizon.
-std::optional<Dispatch> compute_next_dispatch(const types::State& state)
+std::optional<Dispatch> compute_next_dispatch(
+  const types::State& state, std::size_t& next_node_index)
 {
   const types::NodeState* next = nullptr;
-  for (const auto& node : state.node_states)
+  if (next_node_index >= state.node_states.size())
   {
-    if (node.sequence_id <= state.last_node_sequence_id) continue;
-    if (next == nullptr || node.sequence_id < next->sequence_id) next = &node;
+    next_node_index = 0;
+  }
+
+  for (std::size_t i = next_node_index; i < state.node_states.size(); ++i)
+  {
+    const auto& node = state.node_states[i];
+    if (node.sequence_id <= state.last_node_sequence_id)
+    {
+      continue;
+    }
+    next_node_index = i;
+    next = &node;
+    break;
   }
   if (next == nullptr) return std::nullopt;  // No node ahead.
 
@@ -179,7 +192,17 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
   if (state.new_base_request != prev_request) state_changed = true;
 
   const std::string order_id = state.order_id;
-  std::optional<Dispatch> dispatch = compute_next_dispatch(state);
+  if (
+    next_node_order_id_ != state.order_id ||
+    next_node_order_update_id_ != state.order_update_id)
+  {
+    next_node_index_ = 0;
+    next_node_order_id_ = state.order_id;
+    next_node_order_update_id_ = state.order_update_id;
+  }
+
+  std::optional<Dispatch> dispatch =
+    compute_next_dispatch(state, next_node_index_);
 
   if (state_changed) execution->set_state(std::move(state));
 
