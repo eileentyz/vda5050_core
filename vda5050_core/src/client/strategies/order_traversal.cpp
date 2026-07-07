@@ -217,8 +217,20 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
   last_dispatched_seq_ = dispatch->target.sequence_id;
   last_dispatched_order_id_ = order_id;
 
+  NavigationNode target{
+    dispatch->target.node_id, dispatch->target.sequence_id,
+    dispatch->target.node_description, dispatch->target.node_position};
+
+  std::optional<NavigationEdge> via_edge;
+  if (dispatch->via_edge)
+  {
+    via_edge = NavigationEdge{
+      dispatch->via_edge->edge_id, dispatch->via_edge->sequence_id,
+      dispatch->via_edge->trajectory};
+  }
+
   engine()->emit<NavigateToNodeEvent>(
-    execution::Priority::NORMAL, dispatch->target, dispatch->via_edge);
+    execution::Priority::NORMAL, std::move(target), std::move(via_edge));
 
   engine()->step();
 }

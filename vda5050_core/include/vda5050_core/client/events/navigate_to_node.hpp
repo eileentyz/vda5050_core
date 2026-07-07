@@ -19,16 +19,37 @@
 #ifndef VDA5050_CORE__CLIENT__EVENTS__NAVIGATE_TO_NODE_HPP_
 #define VDA5050_CORE__CLIENT__EVENTS__NAVIGATE_TO_NODE_HPP_
 
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "vda5050_core/execution/base.hpp"
-#include "vda5050_core/types/edge_state.hpp"
-#include "vda5050_core/types/node_state.hpp"
+#include "vda5050_core/types/node_position.hpp"
+#include "vda5050_core/types/trajectory.hpp"
 
 namespace vda5050_core {
 
 namespace client {
+
+/// \brief Action-free node payload used for navigation dispatch.
+/// Contains only the navigation data required by the event consumer.
+struct NavigationNode
+{
+  std::string node_id;
+  uint32_t sequence_id = 0;
+  std::optional<std::string> node_description;
+  std::optional<types::NodePosition> node_position;
+};
+
+/// \brief Action-free edge payload used for navigation dispatch.
+/// Contains only the edge data required for navigation.
+struct NavigationEdge
+{
+  std::string edge_id;
+  uint32_t sequence_id = 0;
+  std::optional<types::Trajectory> trajectory;
+};
 
 /// \brief Event requesting navigation to a node in the order.
 ///
@@ -39,16 +60,16 @@ struct NavigateToNodeEvent
 : public execution::Initialize<NavigateToNodeEvent, execution::EventBase>
 {
   /// \brief Node that the AGV should navigate to.
-  types::NodeState target;
+  NavigationNode target;
 
   /// \brief Edge to traverse before reaching the target node.
   ///
   /// Empty when navigating to the first node of the order.
-  std::optional<types::EdgeState> via_edge;
+  std::optional<NavigationEdge> via_edge;
 
   explicit NavigateToNodeEvent(
-    types::NodeState target,
-    std::optional<types::EdgeState> via_edge = std::nullopt)
+    NavigationNode target,
+    std::optional<NavigationEdge> via_edge = std::nullopt)
   : target(std::move(target)), via_edge(std::move(via_edge))
   {
   }

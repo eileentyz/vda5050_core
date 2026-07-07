@@ -181,9 +181,15 @@ TEST(OrderTraversalTest, DispatchesNextNode)
 {
   OrderTraversal strategy;
   auto context = make_context();
-  seed(
-    context, {node_state("node_2", 2, true), node_state("node_4", 4, true)},
-    {edge_state("e1", 1), edge_state("e3", 3)});
+
+  auto node_2 = node_state("node_2", 2, true);
+  auto node_4 = node_state("node_4", 4, true);
+  node_4.node_description = "Target node";
+
+  auto e1 = edge_state("e1", 1);
+  auto e3 = edge_state("e3", 3);
+
+  seed(context, {node_2, node_4}, {e1, e3});
 
   std::shared_ptr<NavigateToNodeEvent> dispatched;
   strategy.engine()->on<NavigateToNodeEvent>(
@@ -193,8 +199,16 @@ TEST(OrderTraversalTest, DispatchesNextNode)
   strategy.step(context);
 
   ASSERT_NE(dispatched, nullptr);
+
+  // Check NavigationNode conversion.
   EXPECT_EQ(dispatched->target.node_id, "node_4");
+  EXPECT_EQ(dispatched->target.sequence_id, 4u);
+  ASSERT_TRUE(dispatched->target.node_description.has_value());
+  EXPECT_EQ(dispatched->target.node_description.value(), "Target node");
+
+  // Check NavigationEdge conversion.
   ASSERT_TRUE(dispatched->via_edge.has_value());
+  EXPECT_EQ(dispatched->via_edge->edge_id, "e3");
   EXPECT_EQ(dispatched->via_edge->sequence_id, 3u);
 }
 
