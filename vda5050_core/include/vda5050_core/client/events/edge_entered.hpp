@@ -29,11 +29,10 @@ namespace vda5050_core {
 
 namespace client {
 
-/// \brief Emitted by the traversal strategy when the AGV enters an edge.
+/// \brief Emitted by AGV begins traversing an edge.
 ///
-/// The action strategy hooks this to trigger the edge's actions. Edge actions
-/// are time-bound: they run only while the AGV traverses this edge, until the
-/// matching `EdgeLeftEvent`.
+/// The action strategy observes this eventto trigger actions associated with
+/// the matching edge. The edge is identified by its ID and sequence ID.
 struct EdgeEnteredEvent
 : public execution::Initialize<EdgeEnteredEvent, execution::EventBase>
 {

@@ -29,11 +29,11 @@ namespace vda5050_core {
 
 namespace client {
 
-/// \brief Emitted by the traversal strategy when the AGV leaves an edge.
+/// \brief Emitted when the AGV finishes traversing an edge.
 ///
-/// The action strategy hooks this to stop or expire the edge's (time-bound)
-/// actions that are still active. Fires when the AGV reaches the edge's end
-/// node.
+/// The action strategy observes this event to detect that traversal of the
+/// matching edge has ended. The edge is identified by its ID and sequence ID.
+/// This event is typically emitted when the AGV reaches the edges's end node.
 struct EdgeLeftEvent
 : public execution::Initialize<EdgeLeftEvent, execution::EventBase>
 {

@@ -27,7 +27,7 @@
 #include "vda5050_core/client/contexts/agv_context.hpp"
 #include "vda5050_core/client/events/edge_entered.hpp"
 #include "vda5050_core/client/events/edge_left.hpp"
-#include "vda5050_core/client/events/node_reached.hpp"
+#include "vda5050_core/client/events/node_traversed.hpp"
 #include "vda5050_core/client/resources/config.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
 #include "vda5050_core/client/strategies/order_actions.hpp"
@@ -44,7 +44,7 @@ using EdgeEnteredEvent = vda5050_core::client::EdgeEnteredEvent;
 using EdgeLeftEvent = vda5050_core::client::EdgeLeftEvent;
 using Engine = vda5050_core::execution::Engine;
 using NodeReachedUpdate = vda5050_core::client::NodeReachedUpdate;
-using NodeReachedEvent = vda5050_core::client::NodeReachedEvent;
+using NodeTraversedEvent = vda5050_core::client::NodeTraversedEvent;
 using OrderActions = vda5050_core::client::OrderActions;
 using OrderExecutionResource = vda5050_core::client::OrderExecutionResource;
 using OrderTraversal = vda5050_core::client::OrderTraversal;
@@ -152,7 +152,7 @@ TEST(OrderActionsTest, RunsNodeActionsOnReached)
   actions->init(context);
   actions->set_executor(finishing_executor());
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(
@@ -182,7 +182,7 @@ TEST(OrderActionsTest, PassesFullActionToExecutor)
     return ActionExecution{types::ActionStatus::FINISHED, std::nullopt};
   });
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(received.action_id, "a1");
@@ -205,7 +205,7 @@ TEST(OrderActionsTest, RecordsExecutorResult)
     return ActionExecution{types::ActionStatus::FAILED, "gripper jammed"};
   });
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   const auto state = action_state_of(context, "a1");
@@ -282,9 +282,9 @@ TEST(OrderActionsTest, IsIdempotentOnRedelivery)
     return ActionExecution{types::ActionStatus::FINISHED, std::nullopt};
   });
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(calls, 1);
@@ -305,7 +305,7 @@ TEST(OrderActionsTest, LeavesActionsWaitingWithoutExecutor)
   auto actions = OrderActions::make(source);
   actions->init(context);
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(
@@ -327,9 +327,9 @@ TEST(OrderActionsTest, IgnoresUnknownNode)
   actions->set_executor(finishing_executor());
 
   // Same node_id but wrong sequence_id, then an entirely unknown node.
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 9u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 9u);
   source->step();
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("nX"), 5u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("nX"), 5u);
   source->step();
 
   EXPECT_EQ(
@@ -379,7 +379,7 @@ TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n4"), 4u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n4"), 4u);
   source->step();
 
   EXPECT_EQ(
@@ -415,9 +415,9 @@ TEST(OrderActionsTest, HardActionBlocksLaterActions)
   actions->init(context);
   actions->set_executor(running_executor({"lift"}));
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n1"), 1u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n1"), 1u);
   source->step();
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(
@@ -446,7 +446,7 @@ TEST(OrderActionsTest, BlockingActionWaitsWhileDrivingThenRuns)
   actions->init(context);
   actions->set_executor(finishing_executor());
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(
@@ -479,7 +479,7 @@ TEST(OrderActionsTest, NoneActionsRunConcurrently)
   actions->init(context);
   actions->set_executor(running_executor({"beep", "blink"}));
 
-  source->emit<NodeReachedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
   EXPECT_EQ(

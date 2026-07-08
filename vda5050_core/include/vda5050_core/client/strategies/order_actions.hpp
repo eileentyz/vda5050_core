@@ -27,7 +27,7 @@
 
 #include "vda5050_core/client/events/edge_entered.hpp"
 #include "vda5050_core/client/events/edge_left.hpp"
-#include "vda5050_core/client/events/node_reached.hpp"
+#include "vda5050_core/client/events/node_traversed.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
 #include "vda5050_core/execution/context_interface.hpp"
 #include "vda5050_core/execution/engine.hpp"
@@ -63,9 +63,9 @@ using ActionExecutor = std::function<ActionExecution(const types::Action&)>;
 /// \brief Triggers and tracks an order's node/edge actions.
 ///
 /// Subscribes to the traversal cascade emitted by `OrderTraversal`
-/// (`NodeReachedEvent`, `EdgeEnteredEvent`, `EdgeLeftEvent`) and drives the
+/// (`NodeTraversedEvent`, `EdgeEnteredEvent`, `EdgeLeftEvent`) and drives the
 /// matching `actionState`s in the `OrderExecutionResource`:
-/// - on node reached: run the node's actions (WAITING -> RUNNING -> result);
+/// - on node traversed: run the node's actions (WAITING -> RUNNING -> result);
 /// - on edge entered: start the edge's actions;
 /// - on edge left: stop the edge's still-running (time-bound) actions.
 ///
@@ -114,8 +114,8 @@ private:
   /// \brief Private; use make() to obtain a shared_ptr instance.
   explicit OrderActions(std::shared_ptr<execution::Engine> source);
 
-  /// \brief Run a node's actions when it is reached.
-  void on_node_reached(const NodeReachedEvent& event);
+  /// \brief Run a node's actions when it is traversed.
+  void on_node_traversed(const NodeTraversedEvent& event);
 
   /// \brief Start an edge's actions when it is entered.
   void on_edge_entered(const EdgeEnteredEvent& event);
