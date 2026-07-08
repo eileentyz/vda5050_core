@@ -29,6 +29,8 @@
 #include "vda5050_core/client/updates/node_reached.hpp"
 #include "vda5050_core/execution/event_queue.hpp"
 #include "vda5050_core/logger/logger.hpp"
+#include "vda5050_core/types/edge.hpp"
+#include "vda5050_core/types/node.hpp"
 
 namespace vda5050_core {
 
@@ -154,6 +156,28 @@ std::optional<Dispatch> compute_next_dispatch(
   return Dispatch{*next, std::move(via_edge)};
 }
 
+types::Node to_node(const types::NodeState& state)
+{
+  types::Node node;
+  node.node_id = state.node_id;
+  node.sequence_id = state.sequence_id;
+  node.released = state.released;
+  node.node_position = state.node_position;
+  node.node_description = state.node_description;
+  return node;
+}
+
+types::Edge to_edge(const types::EdgeState& state)
+{
+  types::Edge edge;
+  edge.edge_id = state.edge_id;
+  edge.sequence_id = state.sequence_id;
+  edge.released = state.released;
+  edge.edge_description = state.edge_description;
+  edge.trajectory = state.trajectory;
+  return edge;
+}
+
 }  // namespace
 
 OrderTraversal::OrderTraversal() = default;
@@ -217,16 +241,11 @@ void OrderTraversal::step(std::shared_ptr<execution::ContextInterface> context)
   last_dispatched_seq_ = dispatch->target.sequence_id;
   last_dispatched_order_id_ = order_id;
 
-  NavigationNode target{
-    dispatch->target.node_id, dispatch->target.sequence_id,
-    dispatch->target.node_description, dispatch->target.node_position};
-
-  std::optional<NavigationEdge> via_edge;
+  auto target = adapter::NodeRequest::from_node(to_node(dispatch->target));
+  std::optional<adapter::EdgeRequest> via_edge;
   if (dispatch->via_edge)
   {
-    via_edge = NavigationEdge{
-      dispatch->via_edge->edge_id, dispatch->via_edge->sequence_id,
-      dispatch->via_edge->trajectory};
+    via_edge = adapter::EdgeRequest::from_edge(to_edge(*dispatch->via_edge));
   }
 
   engine()->emit<NavigateToNodeEvent>(

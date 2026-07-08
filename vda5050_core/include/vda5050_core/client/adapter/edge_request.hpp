@@ -41,6 +41,8 @@ public:
 
   const std::optional<types::Trajectory>& trajectory();
 
+  static EdgeRequest from_edge(const types::Edge& edge);
+
   std::optional<double> max_speed() const;
 
   std::optional<double> min_height() const;
@@ -55,8 +57,6 @@ public:
 
 private:
   friend class Adapter;
-
-  static EdgeRequest from_edge(const types::Edge& edge);
 
   EdgeRequest(
     const std::string& edge_id, uint32_t sequence_id,

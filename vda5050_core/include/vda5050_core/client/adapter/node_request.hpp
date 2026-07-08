@@ -43,10 +43,10 @@ public:
 
   const std::optional<std::string>& node_description() const;
 
+  static NodeRequest from_node(const types::Node& node);
+
 private:
   friend class Adapter;
-
-  static NodeRequest from_node(const types::Node& node);
 
   NodeRequest(
     const std::string& node_id, uint32_t sequence_id,

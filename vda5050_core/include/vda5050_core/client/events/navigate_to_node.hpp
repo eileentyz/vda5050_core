@@ -19,57 +19,36 @@
 #ifndef VDA5050_CORE__CLIENT__EVENTS__NAVIGATE_TO_NODE_HPP_
 #define VDA5050_CORE__CLIENT__EVENTS__NAVIGATE_TO_NODE_HPP_
 
-#include <cstdint>
 #include <optional>
-#include <string>
 #include <utility>
 
+#include "vda5050_core/client/adapter/edge_request.hpp"
+#include "vda5050_core/client/adapter/node_request.hpp"
 #include "vda5050_core/execution/base.hpp"
-#include "vda5050_core/types/node_position.hpp"
-#include "vda5050_core/types/trajectory.hpp"
 
 namespace vda5050_core {
 
 namespace client {
 
-/// \brief Action-free node payload used for navigation dispatch.
-/// Contains only the navigation data required by the event consumer.
-struct NavigationNode
-{
-  std::string node_id;
-  uint32_t sequence_id = 0;
-  std::optional<std::string> node_description;
-  std::optional<types::NodePosition> node_position;
-};
-
-/// \brief Action-free edge payload used for navigation dispatch.
-/// Contains only the edge data required for navigation.
-struct NavigationEdge
-{
-  std::string edge_id;
-  uint32_t sequence_id = 0;
-  std::optional<types::Trajectory> trajectory;
-};
-
-/// \brief Event requesting navigation to a node in the order.
+/// \brief Event requesting navigation to a node in the current order.
 ///
-/// Emitted by the traversal strategy through the Engine for the vehicle's
-/// navigation layer to consume. Carries the target node and
-/// if available, the edge that leads to it.
+/// Emitted by the order traversal strategy when AGV should navigate to the
+/// next node. The payload carries action-free navigation requests,
+/// node and edge actions are dispatched separately.
 struct NavigateToNodeEvent
 : public execution::Initialize<NavigateToNodeEvent, execution::EventBase>
 {
-  /// \brief Node that the AGV should navigate to.
-  NavigationNode target;
+  /// \brief Target node that the AGV should navigate to.
+  adapter::NodeRequest target;
 
-  /// \brief Edge to traverse before reaching the target node.
+  /// \brief Optional edge leading to the target node.
   ///
-  /// Empty when navigating to the first node of the order.
-  std::optional<NavigationEdge> via_edge;
+  /// Empty when target is the first node of order.
+  std::optional<adapter::EdgeRequest> via_edge;
 
   explicit NavigateToNodeEvent(
-    NavigationNode target,
-    std::optional<NavigationEdge> via_edge = std::nullopt)
+    adapter::NodeRequest target,
+    std::optional<adapter::EdgeRequest> via_edge = std::nullopt)
   : target(std::move(target)), via_edge(std::move(via_edge))
   {
   }

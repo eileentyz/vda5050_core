@@ -200,16 +200,16 @@ TEST(OrderTraversalTest, DispatchesNextNode)
 
   ASSERT_NE(dispatched, nullptr);
 
-  // Check NavigationNode conversion.
-  EXPECT_EQ(dispatched->target.node_id, "node_4");
-  EXPECT_EQ(dispatched->target.sequence_id, 4u);
-  ASSERT_TRUE(dispatched->target.node_description.has_value());
-  EXPECT_EQ(dispatched->target.node_description.value(), "Target node");
+  // Check NodeRequest conversion.
+  EXPECT_EQ(dispatched->target.node_id(), "node_4");
+  EXPECT_EQ(dispatched->target.sequence_id(), 4u);
+  ASSERT_TRUE(dispatched->target.node_description().has_value());
+  EXPECT_EQ(dispatched->target.node_description().value(), "Target node");
 
-  // Check NavigationEdge conversion.
+  // Check EdgeRequest conversion.
   ASSERT_TRUE(dispatched->via_edge.has_value());
-  EXPECT_EQ(dispatched->via_edge->edge_id, "e3");
-  EXPECT_EQ(dispatched->via_edge->sequence_id, 3u);
+  EXPECT_EQ(dispatched->via_edge->edge_id(), "e3");
+  EXPECT_EQ(dispatched->via_edge->sequence_id(), 3u);
 }
 
 // Test 6: A node reported out of order (ahead of a still-pending node) is
@@ -286,7 +286,7 @@ TEST(OrderTraversalTest, ResumesAfterBaseExtension)
   strategy.step(context);
   ASSERT_EQ(dispatches, 1);
   ASSERT_NE(last, nullptr);
-  EXPECT_EQ(last->target.node_id, "node_4");
+  EXPECT_EQ(last->target.node_id(), "node_4");
 }
 
 // Test 9: Repeated steps with the same cached update are no-ops.
@@ -364,9 +364,9 @@ TEST(OrderTraversalTest, BootstrapsFirstNode)
   strategy.step(context);
 
   ASSERT_NE(dispatched, nullptr);
-  EXPECT_EQ(dispatched->target.node_id, "node_2");
+  EXPECT_EQ(dispatched->target.node_id(), "node_2");
   ASSERT_TRUE(dispatched->via_edge.has_value());
-  EXPECT_EQ(dispatched->via_edge->sequence_id, 1u);
+  EXPECT_EQ(dispatched->via_edge->sequence_id(), 1u);
 }
 
 // Test 12: Traversal is inert while no order is executing.
@@ -413,7 +413,7 @@ TEST(OrderTraversalTest, ResetsCachedIndexOnOrderUpdate)
   std::vector<uint32_t> dispatched_sequences;
   strategy.engine()->on<NavigateToNodeEvent>(
     [&](std::shared_ptr<NavigateToNodeEvent> event) {
-      dispatched_sequences.push_back(event->target.sequence_id);
+      dispatched_sequences.push_back(event->target.sequence_id());
     });
 
   // Initial order dispatches node_2.
@@ -463,7 +463,7 @@ TEST(OrderTraversalTest, ResetsCachedIndexForNewOrder)
   std::vector<std::string> dispatched_nodes;
   strategy.engine()->on<NavigateToNodeEvent>(
     [&](std::shared_ptr<NavigateToNodeEvent> event) {
-      dispatched_nodes.push_back(event->target.node_id);
+      dispatched_nodes.push_back(event->target.node_id());
     });
 
   strategy.step(context);
