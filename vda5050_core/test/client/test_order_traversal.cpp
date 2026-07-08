@@ -66,17 +66,65 @@ types::EdgeState edge_state(const std::string& edge_id, uint32_t sequence_id)
   return e;
 }
 
+types::Node node_from_state(const types::NodeState& state)
+{
+  types::Node n;
+  n.node_id = state.node_id;
+  n.sequence_id = state.sequence_id;
+  n.released = state.released;
+  n.node_position = state.node_position;
+  n.node_description = state.node_description;
+  return n;
+}
+
+types::Edge edge_from_state(const types::EdgeState& state)
+{
+  types::Edge e;
+  e.edge_id = state.edge_id;
+  e.sequence_id = state.sequence_id;
+  e.released = state.released;
+  e.trajectory = state.trajectory;
+  return e;
+}
+
 // Seed the execution state with nodes and edges.
 void seed(
   const std::shared_ptr<AGVContext>& context,
   std::vector<types::NodeState> nodes, std::vector<types::EdgeState> edges)
 {
+  types::Order order;
+  order.order_id = "o1";
+  for (const auto& node : nodes)
+  {
+    order.nodes.push_back(node_from_state(node));
+  }
+  for (const auto& edge : edges)
+  {
+    order.edges.push_back(edge_from_state(edge));
+  }
+
   auto execution = context->get_resource<OrderExecutionResource>();
   types::State state = execution->get_state();
   state.order_id = "o1";
   state.node_states = std::move(nodes);
   state.edge_states = std::move(edges);
   execution->set_state(std::move(state));
+  execution->set_order(std::move(order));
+  execution->set_executing_order(true);
+}
+
+void seed(
+  const std::shared_ptr<AGVContext>& context, types::Order order,
+  std::vector<types::NodeState> nodes, std::vector<types::EdgeState> edges)
+{
+  auto execution = context->get_resource<OrderExecutionResource>();
+  types::State state = execution->get_state();
+  state.order_id = order.order_id;
+  state.order_update_id = order.order_update_id;
+  state.node_states = std::move(nodes);
+  state.edge_states = std::move(edges);
+  execution->set_state(std::move(state));
+  execution->set_order(std::move(order));
   execution->set_executing_order(true);
 }
 
@@ -335,6 +383,14 @@ TEST(OrderTraversalTest, StaleUpdateDoesNotAdvanceNewOrder)
     node_state("node_2", 2, true), node_state("node_4", 4, true)};
   fresh.edge_states = {edge_state("e1", 1), edge_state("e3", 3)};
   execution->set_state(std::move(fresh));
+  types::Order fresh_order;
+  fresh_order.order_id = "o2";
+  fresh_order.nodes = {
+    node_from_state(node_state("node_2", 2, true)),
+    node_from_state(node_state("node_4", 4, true))};
+  fresh_order.edges = {
+    edge_from_state(edge_state("e1", 1)), edge_from_state(edge_state("e3", 3))};
+  execution->set_order(std::move(fresh_order));
 
   // Step with the stale o1 update still cached (no new node-reached pushed).
   strategy.step(context);
@@ -346,8 +402,7 @@ TEST(OrderTraversalTest, StaleUpdateDoesNotAdvanceNewOrder)
   EXPECT_TRUE(state.last_node_id.empty());
 }
 
-// Test 11: The first released node is dispatched on the first step, before any
-// node-reached arrives (the AGV is already on the start node).
+// Test 11: The first pending released node is dispatched before any node-reached update.
 TEST(OrderTraversalTest, BootstrapsFirstNode)
 {
   OrderTraversal strategy;
@@ -434,6 +489,17 @@ TEST(OrderTraversalTest, ResetsCachedIndexOnOrderUpdate)
     edge_state("e5", 5),
   };
   execution->set_state(std::move(state));
+  types::Order order = execution->get_order();
+  order.order_update_id = 1;
+  order.nodes = {
+    node_from_state(node_state("node_4", 4, true)),
+    node_from_state(node_state("node_6", 6, true)),
+  };
+  order.edges = {
+    edge_from_state(edge_state("e3", 3)),
+    edge_from_state(edge_state("e5", 5)),
+  };
+  execution->set_order(std::move(order));
 
   strategy.step(context);
 
@@ -483,11 +549,86 @@ TEST(OrderTraversalTest, ResetsCachedIndexForNewOrder)
     edge_state("b_edge_3", 3),
   };
   execution->set_state(std::move(new_order));
+  types::Order new_full_order;
+  new_full_order.order_id = "o2";
+  new_full_order.nodes = {
+    node_from_state(node_state("b_node_2", 2, true)),
+    node_from_state(node_state("b_node_4", 4, true)),
+  };
+  new_full_order.edges = {
+    edge_from_state(edge_state("b_edge_1", 1)),
+    edge_from_state(edge_state("b_edge_3", 3)),
+  };
+  execution->set_order(std::move(new_full_order));
 
   strategy.step(context);
 
   ASSERT_EQ(dispatched_nodes.size(), 2u);
   EXPECT_EQ(dispatched_nodes.back(), "b_node_2");
+}
+
+// Test 15: Dispatch uses the full accepted Order for execution fields that are
+// intentionally absent from EdgeState.
+TEST(OrderTraversalTest, DispatchesEdgeRequestFromFullOrder)
+{
+  OrderTraversal strategy;
+  auto context = make_context();
+
+  auto node_2 = node_state("node_2", 2, true);
+  auto e1_state = edge_state("e1", 1);
+
+  types::Order order;
+  order.order_id = "o1";
+  order.nodes = {node_from_state(node_2)};
+  auto e1 = edge_from_state(e1_state);
+  e1.max_speed = 1.25;
+  e1.min_height = 0.1;
+  e1.max_height = 2.0;
+  e1.rotation_allowed = false;
+  e1.max_rotation_speed = 0.5;
+  e1.length = 3.5;
+  order.edges = {e1};
+
+  seed(context, std::move(order), {node_2}, {e1_state});
+
+  std::shared_ptr<NavigateToNodeEvent> dispatched;
+  strategy.engine()->on<NavigateToNodeEvent>(
+    [&](std::shared_ptr<NavigateToNodeEvent> event) { dispatched = event; });
+
+  strategy.step(context);
+
+  ASSERT_NE(dispatched, nullptr);
+  ASSERT_TRUE(dispatched->via_edge.has_value());
+  EXPECT_EQ(dispatched->via_edge->max_speed(), 1.25);
+  EXPECT_EQ(dispatched->via_edge->min_height(), 0.1);
+  EXPECT_EQ(dispatched->via_edge->max_height(), 2.0);
+  EXPECT_EQ(dispatched->via_edge->rotation_allowed(), false);
+  EXPECT_EQ(dispatched->via_edge->max_rotation_speed(), 0.5);
+  EXPECT_EQ(dispatched->via_edge->length(), 3.5);
+}
+
+// Test 16: Traversal does not dispatch the same node twice in a row.
+TEST(OrderTraversalTest, DoesNotDispatchWhenIncomingEdgeIsMissing)
+{
+  OrderTraversal strategy;
+  auto context = make_context();
+
+  auto node_2 = node_state("node_2", 2, true);
+
+  types::Order order;
+  order.order_id = "o1";
+  order.nodes = {node_from_state(node_2)};
+  // Deliberately omit edge sequence 1.
+
+  seed(context, std::move(order), {node_2}, {});
+
+  bool dispatched = false;
+  strategy.engine()->on<NavigateToNodeEvent>(
+    [&](std::shared_ptr<NavigateToNodeEvent>) { dispatched = true; });
+
+  strategy.step(context);
+
+  EXPECT_FALSE(dispatched);
 }
 
 }  // namespace
