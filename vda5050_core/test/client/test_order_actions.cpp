@@ -27,6 +27,7 @@
 #include "vda5050_core/client/contexts/agv_context.hpp"
 #include "vda5050_core/client/events/edge_entered.hpp"
 #include "vda5050_core/client/events/edge_left.hpp"
+#include "vda5050_core/client/events/execute_action.hpp"
 #include "vda5050_core/client/events/node_traversed.hpp"
 #include "vda5050_core/client/resources/config.hpp"
 #include "vda5050_core/client/resources/order_execution.hpp"
@@ -39,9 +40,9 @@
 namespace {
 
 using AGVContext = vda5050_core::client::AGVContext;
-using ActionExecution = vda5050_core::client::ActionExecution;
 using EdgeEnteredEvent = vda5050_core::client::EdgeEnteredEvent;
 using EdgeLeftEvent = vda5050_core::client::EdgeLeftEvent;
+using ExecuteActionEvent = vda5050_core::client::ExecuteActionEvent;
 using Engine = vda5050_core::execution::Engine;
 using NodeReachedUpdate = vda5050_core::client::NodeReachedUpdate;
 using NodeTraversedEvent = vda5050_core::client::NodeTraversedEvent;
@@ -130,15 +131,14 @@ std::optional<types::ActionState> action_state_of(
   return std::nullopt;
 }
 
-// An executor that always finishes the action it is given.
-vda5050_core::client::ActionExecutor finishing_executor()
+void finish_actions(const std::shared_ptr<Engine>& source)
 {
-  return [](const types::Action&) {
-    return ActionExecution{types::ActionStatus::FINISHED, std::nullopt};
-  };
+  source->on<ExecuteActionEvent>([](std::shared_ptr<ExecuteActionEvent> event) {
+    event->execution->finished();
+  });
 }
 
-// Test 1: Node actions run and finish when the node is reached.
+// Test 1: When a node is traversed/reached, all actions attached to that node are executed.
 TEST(OrderActionsTest, RunsNodeActionsOnReached)
 {
   auto context = make_context();
@@ -150,7 +150,7 @@ TEST(OrderActionsTest, RunsNodeActionsOnReached)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(finishing_executor());
+  finish_actions(source);
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
@@ -163,11 +163,13 @@ TEST(OrderActionsTest, RunsNodeActionsOnReached)
     types::ActionStatus::FINISHED);
 }
 
-// Test 2: The full Action (type, id, blockingType) reaches the executor.
-TEST(OrderActionsTest, PassesFullActionToExecutor)
+// Test 2: The action executor request contains correct information.
+TEST(OrderActionsTest, PassesActionRequestToExecutor)
 {
   auto context = make_context();
   types::Order order;
+  order.order_id = "order_1";
+  order.order_update_id = 3;
   order.nodes.push_back(
     make_node("n2", 2, {make_action("a1", "pick", types::BlockingType::HARD)}));
   accept_order(context, order);
@@ -176,18 +178,27 @@ TEST(OrderActionsTest, PassesFullActionToExecutor)
   auto actions = OrderActions::make(source);
   actions->init(context);
 
-  types::Action received;
-  actions->set_executor([&received](const types::Action& action) {
-    received = action;
-    return ActionExecution{types::ActionStatus::FINISHED, std::nullopt};
-  });
+  std::string action_id;
+  std::string action_type;
+  std::string order_id;
+  std::optional<uint32_t> order_update_id;
+  source->on<ExecuteActionEvent>(
+    [&](std::shared_ptr<ExecuteActionEvent> event) {
+      action_id = event->request.action_id();
+      action_type = event->request.action_type();
+      order_id = event->request.order_id().value_or("");
+      order_update_id = event->request.order_update_id();
+      event->execution->finished();
+    });
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
-  EXPECT_EQ(received.action_id, "a1");
-  EXPECT_EQ(received.action_type, "pick");
-  EXPECT_EQ(received.blocking_type, types::BlockingType::HARD);
+  EXPECT_EQ(action_id, "a1");
+  EXPECT_EQ(action_type, "pick");
+  EXPECT_EQ(order_id, "order_1");
+  ASSERT_TRUE(order_update_id.has_value());
+  EXPECT_EQ(order_update_id.value(), 3u);
 }
 
 // Test 3: The executor's status and result description are recorded.
@@ -201,8 +212,8 @@ TEST(OrderActionsTest, RecordsExecutorResult)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor([](const types::Action&) {
-    return ActionExecution{types::ActionStatus::FAILED, "gripper jammed"};
+  source->on<ExecuteActionEvent>([](std::shared_ptr<ExecuteActionEvent> event) {
+    event->execution->failed("gripper jammed");
   });
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
@@ -215,7 +226,7 @@ TEST(OrderActionsTest, RecordsExecutorResult)
   EXPECT_EQ(state->result_description.value(), "gripper jammed");
 }
 
-// Test 4: Edge actions start (RUNNING) when the edge is entered.
+// Test 4: When an edge is entered, actions attached to that edge start running.
 TEST(OrderActionsTest, StartsEdgeActionsOnEntered)
 {
   auto context = make_context();
@@ -226,8 +237,8 @@ TEST(OrderActionsTest, StartsEdgeActionsOnEntered)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor([](const types::Action&) {
-    return ActionExecution{types::ActionStatus::RUNNING, std::nullopt};
+  source->on<ExecuteActionEvent>([](std::shared_ptr<ExecuteActionEvent> event) {
+    event->execution->running();
   });
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
@@ -238,7 +249,7 @@ TEST(OrderActionsTest, StartsEdgeActionsOnEntered)
     types::ActionStatus::RUNNING);
 }
 
-// Test 5: Leaving an edge stops its still-running (time-bound) actions.
+// Test 5: If an edge action is still running, leaving the edge should finish it.
 TEST(OrderActionsTest, StopsRunningEdgeActionsOnLeft)
 {
   auto context = make_context();
@@ -249,8 +260,8 @@ TEST(OrderActionsTest, StopsRunningEdgeActionsOnLeft)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor([](const types::Action&) {
-    return ActionExecution{types::ActionStatus::RUNNING, std::nullopt};
+  source->on<ExecuteActionEvent>([](std::shared_ptr<ExecuteActionEvent> event) {
+    event->execution->running();
   });
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
@@ -277,10 +288,11 @@ TEST(OrderActionsTest, IsIdempotentOnRedelivery)
   actions->init(context);
 
   int calls = 0;
-  actions->set_executor([&calls](const types::Action&) {
-    ++calls;
-    return ActionExecution{types::ActionStatus::FINISHED, std::nullopt};
-  });
+  source->on<ExecuteActionEvent>(
+    [&calls](std::shared_ptr<ExecuteActionEvent> event) {
+      ++calls;
+      event->execution->finished();
+    });
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
@@ -293,8 +305,8 @@ TEST(OrderActionsTest, IsIdempotentOnRedelivery)
     types::ActionStatus::FINISHED);
 }
 
-// Test 7: Without a registered executor, actions stay WAITING (and warn).
-TEST(OrderActionsTest, LeavesActionsWaitingWithoutExecutor)
+// Test 7: If nobody finishes or fails the action, the action remains RUNNING.
+TEST(OrderActionsTest, LeavesActionsRunningWithoutHandler)
 {
   auto context = make_context();
   types::Order order;
@@ -310,10 +322,10 @@ TEST(OrderActionsTest, LeavesActionsWaitingWithoutExecutor)
 
   EXPECT_EQ(
     action_state_of(context, "a1")->action_status,
-    types::ActionStatus::WAITING);
+    types::ActionStatus::RUNNING);
 }
 
-// Test 8: A signal for a node/sequence not in the order is ignored.
+// Test 8: If the event does not match the current order node, do nothing.
 TEST(OrderActionsTest, IgnoresUnknownNode)
 {
   auto context = make_context();
@@ -324,7 +336,7 @@ TEST(OrderActionsTest, IgnoresUnknownNode)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(finishing_executor());
+  finish_actions(source);
 
   // Same node_id but wrong sequence_id, then an entirely unknown node.
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 9u);
@@ -337,20 +349,24 @@ TEST(OrderActionsTest, IgnoresUnknownNode)
     types::ActionStatus::WAITING);
 }
 
-// An executor that leaves the given action types RUNNING (async/time-bound) and
-// finishes everything else.
-vda5050_core::client::ActionExecutor running_executor(
-  std::vector<std::string> running_types)
+void run_actions_for_types(
+  const std::shared_ptr<Engine>& source, std::vector<std::string> running_types)
 {
-  return [running_types](const types::Action& action) {
-    const bool stays_running = std::find(
-                                 running_types.begin(), running_types.end(),
-                                 action.action_type) != running_types.end();
-    return ActionExecution{
-      stays_running ? types::ActionStatus::RUNNING
-                    : types::ActionStatus::FINISHED,
-      std::nullopt};
-  };
+  source->on<ExecuteActionEvent>(
+    [running_types](std::shared_ptr<ExecuteActionEvent> event) {
+      const bool stays_running =
+        std::find(
+          running_types.begin(), running_types.end(),
+          event->request.action_type()) != running_types.end();
+      if (stays_running)
+      {
+        event->execution->running();
+      }
+      else
+      {
+        event->execution->finished();
+      }
+    });
 }
 
 void set_driving(const std::shared_ptr<AGVContext>& context, bool driving)
@@ -361,8 +377,7 @@ void set_driving(const std::shared_ptr<AGVContext>& context, bool driving)
   execution->set_state(std::move(state));
 }
 
-// Test 9: A HARD action waits for an already-running action, then runs once it
-// clears (here the running action is a time-bound edge action).
+// Test 9: A HARD action should wait if another action is already running.
 TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
 {
   auto context = make_context();
@@ -375,7 +390,7 @@ TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(running_executor({"blink"}));
+  run_actions_for_types(source, {"blink"});
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
@@ -400,7 +415,7 @@ TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
     types::ActionStatus::FINISHED);
 }
 
-// Test 10: While a HARD action is running, no other action may start.
+// Test 10: If a HARD action is already running, later actions should not start.
 TEST(OrderActionsTest, HardActionBlocksLaterActions)
 {
   auto context = make_context();
@@ -413,7 +428,7 @@ TEST(OrderActionsTest, HardActionBlocksLaterActions)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(running_executor({"lift"}));
+  run_actions_for_types(source, {"lift"});
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n1"), 1u);
   source->step();
@@ -444,7 +459,7 @@ TEST(OrderActionsTest, BlockingActionWaitsWhileDrivingThenRuns)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(finishing_executor());
+  finish_actions(source);
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
@@ -477,7 +492,7 @@ TEST(OrderActionsTest, NoneActionsRunConcurrently)
   auto source = std::make_shared<Engine>();
   auto actions = OrderActions::make(source);
   actions->init(context);
-  actions->set_executor(running_executor({"beep", "blink"}));
+  run_actions_for_types(source, {"beep", "blink"});
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
@@ -492,8 +507,7 @@ TEST(OrderActionsTest, NoneActionsRunConcurrently)
 
 // Test 13: End-to-end. OrderActions wired to OrderTraversal's engine reacts to a
 // real node-reached signal: traversing n2 runs its node action and entering the
-// next edge e3 starts that edge's action - all over the shared engine, no
-// hand-emitted events.
+// next edge e3 starts that edge's action.
 TEST(OrderActionsTest, IntegratesWithOrderTraversal)
 {
   auto context = make_context();
@@ -533,7 +547,7 @@ TEST(OrderActionsTest, IntegratesWithOrderTraversal)
   auto actions = OrderActions::make(traversal->engine());
   traversal->init(context);
   actions->init(context);
-  actions->set_executor(running_executor({"blink"}));
+  run_actions_for_types(traversal->engine(), {"blink"});
 
   // A real node-reached signal flows through traversal, whose cascade events
   // reach OrderActions over the shared engine.
@@ -547,6 +561,136 @@ TEST(OrderActionsTest, IntegratesWithOrderTraversal)
   EXPECT_EQ(
     action_state_of(context, "edge_a")->action_status,
     types::ActionStatus::RUNNING);
+}
+
+// Test 14: A HARD action must not start while the AGV is driving, but it runs
+// once the AGV stops.
+TEST(OrderActionsTest, HardActionWaitsWhileDrivingThenRuns)
+{
+  auto context = make_context();
+  types::Order order;
+  order.nodes.push_back(make_node(
+    "n2", 2, {make_action("hard_a", "lift", types::BlockingType::HARD)}));
+  accept_order(context, order);
+  set_driving(context, true);
+
+  auto source = std::make_shared<Engine>();
+  auto actions = OrderActions::make(source);
+  actions->init(context);
+  finish_actions(source);
+
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
+
+  EXPECT_EQ(
+    action_state_of(context, "hard_a")->action_status,
+    types::ActionStatus::WAITING);
+
+  // The AGV stops; the next spin retries the deferred HARD action.
+  set_driving(context, false);
+  actions->step(context);
+
+  EXPECT_EQ(
+    action_state_of(context, "hard_a")->action_status,
+    types::ActionStatus::FINISHED);
+}
+
+// Test 15: A terminal FAILED action is not executed again when the same signal
+// is redelivered.
+TEST(OrderActionsTest, FailedActionIsNotRetriedOnRedelivery)
+{
+  auto context = make_context();
+  types::Order order;
+  order.nodes.push_back(make_node("n2", 2, {make_action("a1", "pick")}));
+  accept_order(context, order);
+
+  auto source = std::make_shared<Engine>();
+  auto actions = OrderActions::make(source);
+  actions->init(context);
+
+  int calls = 0;
+  source->on<ExecuteActionEvent>(
+    [&calls](std::shared_ptr<ExecuteActionEvent> event) {
+      ++calls;
+      event->execution->failed("failed once");
+    });
+
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
+
+  source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
+
+  EXPECT_EQ(calls, 1);
+
+  const auto state = action_state_of(context, "a1");
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ(state->action_status, types::ActionStatus::FAILED);
+  ASSERT_TRUE(state->result_description.has_value());
+  EXPECT_EQ(state->result_description.value(), "failed once");
+}
+
+// Test 16: Leaving one edge only finishes running actions attached to that edge.
+TEST(OrderActionsTest, EdgeLeftOnlyStopsActionsForThatEdge)
+{
+  auto context = make_context();
+  types::Order order;
+  order.edges.push_back(make_edge("e3", 3, {make_action("a_e3", "blink")}));
+  order.edges.push_back(make_edge("e5", 5, {make_action("a_e5", "scan")}));
+  accept_order(context, order);
+
+  auto source = std::make_shared<Engine>();
+  auto actions = OrderActions::make(source);
+  actions->init(context);
+
+  source->on<ExecuteActionEvent>([](std::shared_ptr<ExecuteActionEvent> event) {
+    event->execution->running();
+  });
+
+  source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
+  source->step();
+
+  source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e5"), 5u);
+  source->step();
+
+  source->emit<EdgeLeftEvent>(Priority::NORMAL, std::string("e3"), 3u);
+  source->step();
+
+  const auto e3_state = action_state_of(context, "a_e3");
+  const auto e5_state = action_state_of(context, "a_e5");
+
+  ASSERT_TRUE(e3_state.has_value());
+  ASSERT_TRUE(e5_state.has_value());
+
+  EXPECT_EQ(e3_state->action_status, types::ActionStatus::FINISHED);
+  ASSERT_TRUE(e3_state->result_description.has_value());
+  EXPECT_EQ(e3_state->result_description.value(), "completed: edge left");
+
+  EXPECT_EQ(e5_state->action_status, types::ActionStatus::RUNNING);
+}
+
+// Test 17: A signal for an edge/sequence not in the order is ignored.
+TEST(OrderActionsTest, IgnoresUnknownEdge)
+{
+  auto context = make_context();
+  types::Order order;
+  order.edges.push_back(make_edge("e3", 3, {make_action("a1", "blink")}));
+  accept_order(context, order);
+
+  auto source = std::make_shared<Engine>();
+  auto actions = OrderActions::make(source);
+  actions->init(context);
+  finish_actions(source);
+
+  // Same edge_id but wrong sequence_id, then an entirely unknown edge.
+  source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 9u);
+  source->step();
+  source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("eX"), 5u);
+  source->step();
+
+  EXPECT_EQ(
+    action_state_of(context, "a1")->action_status,
+    types::ActionStatus::WAITING);
 }
 
 }  // namespace

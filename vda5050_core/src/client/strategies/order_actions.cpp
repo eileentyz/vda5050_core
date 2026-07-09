@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "vda5050_core/client/events/execute_action.hpp"
 #include "vda5050_core/logger/logger.hpp"
 #include "vda5050_core/types/action_state.hpp"
 #include "vda5050_core/types/blocking_type.hpp"
@@ -54,16 +55,6 @@ bool is_active(types::ActionStatus status)
   return status == types::ActionStatus::INITIALIZING ||
          status == types::ActionStatus::RUNNING ||
          status == types::ActionStatus::PAUSED;
-}
-
-// The only statuses an executor may report: RUNNING (long-running action
-// started, completion reported later), or FINISHED/FAILED (completed
-// synchronously). Anything else would corrupt the scheduler state.
-bool is_valid_executor_result(types::ActionStatus status)
-{
-  return status == types::ActionStatus::RUNNING ||
-         status == types::ActionStatus::FINISHED ||
-         status == types::ActionStatus::FAILED;
 }
 
 // blockingType of an action looked up by id in the accepted order. Unknown ids
@@ -159,8 +150,8 @@ void OrderActions::init(std::shared_ptr<execution::ContextInterface> context)
     return;
   }
 
-  // Hook the traversal cascade. Callbacks fire synchronously while the traversal
-  // strategy steps, so each event is handled exactly once and in order.
+  // Traversal events are queued on the shared engine and processed when the
+  // engine is stepped. The callbacks run synchronously on the stepping thread.
   source_->on<NodeTraversedEvent>(
     [w = weak_from_this()](std::shared_ptr<NodeTraversedEvent> event) {
       if (auto self = w.lock()) self->on_node_traversed(*event);
@@ -182,12 +173,6 @@ void OrderActions::step(std::shared_ptr<execution::ContextInterface> /*ctx*/)
   // action) needs retrying when that condition clears without a fresh traversal
   // event. The Handler calls step() every spin, so retry the pending queue here.
   if (execution_ && !pending_.empty()) pump();
-}
-
-void OrderActions::set_executor(ActionExecutor executor)
-{
-  if (!executor) return;
-  executor_ = std::move(executor);
 }
 
 void OrderActions::on_node_traversed(const NodeTraversedEvent& event)
@@ -261,8 +246,8 @@ void OrderActions::pump()
     auto state = execution_->get_state();
     const auto order = execution_->get_order();
 
-    // Drop entries that are no longer WAITING (already started elsewhere, or
-    // never seeded), keeping re-delivery of the same signal idempotent.
+    // Drop entries that are not WAITING, including already-started actions or
+    // actions missing from state, keeping re-delivery idempotent.
     pending_.erase(
       std::remove_if(
         pending_.begin(), pending_.end(),
@@ -281,20 +266,13 @@ void OrderActions::pump()
 
     const types::Action action = *next;
     pending_.erase(next);
-    start_action(action);
+    start_action(order, action);
   }
 }
 
-void OrderActions::start_action(const types::Action& action)
+void OrderActions::start_action(
+  const types::Order& order, const types::Action& action)
 {
-  if (!executor_)
-  {
-    VDA5050_WARN_STREAM(
-      "OrderActions: no action executor registered; action '"
-      << action.action_id << "' (" << action.action_type << ") left WAITING");
-    return;
-  }
-
   // Claim the action: only a WAITING action transitions to RUNNING, so
   // re-delivery of the same signal is idempotent and a single action is never
   // executed twice. Safe without one atomic section because the handler runs
@@ -314,40 +292,49 @@ void OrderActions::start_action(const types::Action& action)
   }
   if (!claimed) return;
 
-  // Perform the action outside the lock; the executor is integrator code and
-  // may itself read the execution resource.
-  const ActionExecution result = executor_(action);
+  auto action_execution = adapter::ActionExecution::make(
+    [this, action_id = action.action_id](
+      types::ActionStatus status,
+      std::optional<std::string> result_description) {
+      update_action_status(action_id, status, std::move(result_description));
+    });
 
-  // Defend against an executor returning a status that would corrupt the
-  // scheduler (e.g. WAITING/PAUSED): coerce anything unexpected to FAILED.
-  types::ActionStatus status = result.status;
-  if (!is_valid_executor_result(status))
-  {
-    VDA5050_WARN_STREAM(
-      "OrderActions: executor returned invalid status for action '"
-      << action.action_id << "'; treating as FAILED");
-    status = types::ActionStatus::FAILED;
-  }
+  const auto request = adapter::ActionRequest::from_order_action(
+    order.order_id, order.order_update_id, action);
 
+  // Emit outside the state update; handlers may read the execution resource and
+  // report status through the execution adapter.
+  source_->emit<ExecuteActionEvent>(
+    execution::Priority::NORMAL, std::move(request),
+    std::move(action_execution));
+
+  // Pump the queue so action execution feedback can be applied before the
+  // scheduler continues. This may process an earlier queued event if one has
+  // higher priority or was already pending.
+  source_->step();
+}
+
+void OrderActions::update_action_status(
+  const std::string& action_id, types::ActionStatus status,
+  std::optional<std::string> result_description)
+{
+  types::State state = execution_->get_state();
+  auto* action_state = find_action_state(state, action_id);
+  if (action_state)
   {
-    types::State state = execution_->get_state();
-    auto* action_state = find_action_state(state, action.action_id);
-    if (action_state)
-    {
-      action_state->action_status = status;
-      action_state->result_description = result.result_description;
-    }
-    execution_->set_state(std::move(state));
+    action_state->action_status = status;
+    action_state->result_description = std::move(result_description);
   }
+  execution_->set_state(std::move(state));
 }
 
 void OrderActions::stop_actions(const std::vector<types::Action>& actions)
 {
   if (actions.empty()) return;
 
-  // Edge actions are time-bound: for this first synchronous implementation an
-  // active edge-scoped action is considered complete when the AGV leaves the
-  // edge. Finished/failed/waiting actions are left untouched.
+  // Edge actions are time-bound: in this first implementation, an active
+  // edge-scoped action is considered complete when the AGV leaves the edge.
+  // Finished/failed/waiting actions are left untouched.
   types::State state = execution_->get_state();
   for (const auto& action : actions)
   {

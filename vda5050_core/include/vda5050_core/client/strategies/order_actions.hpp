@@ -19,7 +19,6 @@
 #ifndef VDA5050_CORE__CLIENT__STRATEGIES__ORDER_ACTIONS_HPP_
 #define VDA5050_CORE__CLIENT__STRATEGIES__ORDER_ACTIONS_HPP_
 
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,61 +33,32 @@
 #include "vda5050_core/execution/strategy_interface.hpp"
 #include "vda5050_core/types/action.hpp"
 #include "vda5050_core/types/action_status.hpp"
+#include "vda5050_core/types/order.hpp"
 
 namespace vda5050_core {
 
 namespace client {
 
-/// \brief Outcome an executor reports after being asked to perform an action.
+/// \brief Triggers and tracks an order's node and edge actions.
 ///
-/// `status` is the resulting `actionStatus`: FINISHED/FAILED for a one-shot
-/// action that completed synchronously, or RUNNING for a long-running action
-/// that was started and whose completion is reported later (asynchronous
-/// completion is a future extension). `result_description` is copied into the
-/// matching `actionState`.
-struct ActionExecution
-{
-  types::ActionStatus status = types::ActionStatus::FINISHED;
-  std::optional<std::string> result_description;
-};
-
-/// \brief Hook that actually performs a single VDA5050 action.
+/// Subscribes to traversal events emitted by `OrderTraversal`
+/// (`NodeTraversedEvent`, `EdgeEnteredEvent`, `EdgeLeftEvent`) and updates the
+/// matching `actionState`s in the `OrderExecutionResource`.
 ///
-/// Receives the full `Action` (type, id, parameters, blockingType) so the robot
-/// configuration layer can dispatch on `action_type`. The core cannot know how
-/// to perform a robot-specific action, so without a registered executor the
-/// strategy leaves actions WAITING and warns.
-using ActionExecutor = std::function<ActionExecution(const types::Action&)>;
-
-/// \brief Triggers and tracks an order's node/edge actions.
+/// The full `Action` objects are read from the accepted order. This strategy
+/// decides when an action may start, marks it RUNNING, emits an
+/// `ExecuteActionEvent`, and records status updates reported through
+/// `ActionExecution`.
 ///
-/// Subscribes to the traversal cascade emitted by `OrderTraversal`
-/// (`NodeTraversedEvent`, `EdgeEnteredEvent`, `EdgeLeftEvent`) and drives the
-/// matching `actionState`s in the `OrderExecutionResource`:
-/// - on node traversed: run the node's actions (WAITING -> RUNNING -> result);
-/// - on edge entered: start the edge's actions;
-/// - on edge left: stop the edge's still-running (time-bound) actions.
+/// Blocking behavior is applied when actions are started:
+/// - HARD runs exclusively and does not start while the AGV is driving;
+/// - SOFT may run alongside other non-HARD actions but does not start while the
+///   AGV is driving;
+/// - NONE can run concurrently unless a HARD action is active.
 ///
-/// The full `Action` objects (type, parameters, blockingType) are read from the
-/// persisted accepted order via `get_order()`; the state arrays only carry
-/// `actionState`s. Work is driven synchronously from the source engine's
-/// callbacks, so each event is handled exactly once in cascade order.
-///
-/// This provides basic blocking-aware *scheduling* of actions against each
-/// other and the AGV's driving state - not full VDA5050 blocking/navigation
-/// coordination. blockingType is applied at action start: a triggered action
-/// that cannot run yet is held in a pending queue and retried whenever an action
-/// completes:
-/// - HARD runs exclusively: no other action may be active, and it does not start
-///   while the AGV is driving;
-/// - SOFT may run alongside other actions but not while the AGV is driving;
-/// - NONE is unrestricted (it is only held back while a HARD action is active).
-///
-/// The reciprocal coupling - the AGV's movement yielding to a pending blocking
-/// action (so HARD actually pauses navigation) - is NOT done here; it belongs to
-/// the navigation strategy that consumes `NavigateToNodeEvent` and does not exist
-/// yet. This strategy only reads `state.driving`. instantAction handling
-/// (pause/resume/cancel) and asynchronous action completion remain follow-ups.
+/// This strategy only schedules order actions. It does not perform
+/// robot-specific actions, handle instant actions, or directly control
+/// navigation.
 class OrderActions : public execution::StrategyInterface,
                      public std::enable_shared_from_this<OrderActions>
 {
@@ -100,15 +70,12 @@ public:
   /// \brief Resolve the execution resource and subscribe to the source engine.
   void init(std::shared_ptr<execution::ContextInterface> context) override;
 
-  /// \brief Retry actions deferred by blockingType once per Handler spin.
+  /// \brief Retry actions deferred by blockingType once per strategy step.
   ///
   /// Actions are triggered by the source engine's callbacks; this only re-pumps
   /// the pending queue so a deferral that has since cleared (driving stopped, a
   /// blocker finished) proceeds without waiting for a new traversal event.
   void step(std::shared_ptr<execution::ContextInterface> context) override;
-
-  /// \brief Register the hook that performs actions (no-op if `executor` empty).
-  void set_executor(ActionExecutor executor);
 
 private:
   /// \brief Private; use make() to obtain a shared_ptr instance.
@@ -130,15 +97,19 @@ private:
   /// repeating until no further action can start (a completion may unblock more).
   void pump();
 
-  /// \brief Claim (WAITING -> RUNNING), execute and record one action's outcome.
-  void start_action(const types::Action& action);
+  /// \brief Claim an action and emit an ExecuteActionEvent.
+  void start_action(const types::Order& order, const types::Action& action);
+
+  /// \brief Record an action status update reported through ActionExecution.
+  void update_action_status(
+    const std::string& action_id, types::ActionStatus status,
+    std::optional<std::string> result_description);
 
   /// \brief Finish any of these actions that are still running (edge left).
   void stop_actions(const std::vector<types::Action>& actions);
 
   std::shared_ptr<execution::Engine> source_;
   std::shared_ptr<OrderExecutionResource> execution_;
-  ActionExecutor executor_;
 
   /// \brief Triggered actions still waiting for their blockingType turn.
   std::vector<types::Action> pending_;
