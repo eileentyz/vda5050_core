@@ -307,11 +307,6 @@ void OrderActions::start_action(
   source_->emit<ExecuteActionEvent>(
     execution::Priority::NORMAL, std::move(request),
     std::move(action_execution));
-
-  // Pump the queue so action execution feedback can be applied before the
-  // scheduler continues. This may process an earlier queued event if one has
-  // higher priority or was already pending.
-  source_->step();
 }
 
 void OrderActions::update_action_status(

@@ -154,6 +154,8 @@ TEST(OrderActionsTest, RunsNodeActionsOnReached)
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
+  source->step();
+  source->step();
 
   EXPECT_EQ(
     action_state_of(context, "a1")->action_status,
@@ -193,6 +195,7 @@ TEST(OrderActionsTest, PassesActionRequestToExecutor)
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
+  source->step();
 
   EXPECT_EQ(action_id, "a1");
   EXPECT_EQ(action_type, "pick");
@@ -217,6 +220,7 @@ TEST(OrderActionsTest, RecordsExecutorResult)
   });
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
   source->step();
 
   const auto state = action_state_of(context, "a1");
@@ -243,6 +247,7 @@ TEST(OrderActionsTest, StartsEdgeActionsOnEntered)
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
+  source->step();
 
   EXPECT_EQ(
     action_state_of(context, "a1")->action_status,
@@ -265,6 +270,7 @@ TEST(OrderActionsTest, StopsRunningEdgeActionsOnLeft)
   });
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
+  source->step();
   source->step();
   source->emit<EdgeLeftEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
@@ -296,6 +302,7 @@ TEST(OrderActionsTest, IsIdempotentOnRedelivery)
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
+  source->step();
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
 
@@ -318,6 +325,7 @@ TEST(OrderActionsTest, LeavesActionsRunningWithoutHandler)
   actions->init(context);
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
   source->step();
 
   EXPECT_EQ(
@@ -394,6 +402,7 @@ TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
+  source->step();
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n4"), 4u);
   source->step();
 
@@ -405,6 +414,7 @@ TEST(OrderActionsTest, HardActionDefersWhileAnotherActionRuns)
     types::ActionStatus::WAITING);
 
   source->emit<EdgeLeftEvent>(Priority::NORMAL, std::string("e3"), 3u);
+  source->step();
   source->step();
 
   EXPECT_EQ(
@@ -431,6 +441,7 @@ TEST(OrderActionsTest, HardActionBlocksLaterActions)
   run_actions_for_types(source, {"lift"});
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n1"), 1u);
+  source->step();
   source->step();
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
@@ -463,6 +474,7 @@ TEST(OrderActionsTest, BlockingActionWaitsWhileDrivingThenRuns)
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
   source->step();
+  source->step();
 
   EXPECT_EQ(
     action_state_of(context, "soft_a")->action_status,
@@ -474,6 +486,7 @@ TEST(OrderActionsTest, BlockingActionWaitsWhileDrivingThenRuns)
   // The AGV stops; the next spin retries the deferred SOFT action.
   set_driving(context, false);
   actions->step(context);
+  source->step();
 
   EXPECT_EQ(
     action_state_of(context, "soft_a")->action_status,
@@ -495,6 +508,8 @@ TEST(OrderActionsTest, NoneActionsRunConcurrently)
   run_actions_for_types(source, {"beep", "blink"});
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
+  source->step();
   source->step();
 
   EXPECT_EQ(
@@ -554,6 +569,9 @@ TEST(OrderActionsTest, IntegratesWithOrderTraversal)
   context->provider()->push<NodeReachedUpdate>("n2", 2);
   traversal->step(context);
   actions->step(context);
+  traversal->engine()->step();
+  actions->step(context);
+  traversal->engine()->step();
 
   EXPECT_EQ(
     action_state_of(context, "node_a")->action_status,
@@ -589,6 +607,7 @@ TEST(OrderActionsTest, HardActionWaitsWhileDrivingThenRuns)
   // The AGV stops; the next spin retries the deferred HARD action.
   set_driving(context, false);
   actions->step(context);
+  source->step();
 
   EXPECT_EQ(
     action_state_of(context, "hard_a")->action_status,
@@ -616,6 +635,7 @@ TEST(OrderActionsTest, FailedActionIsNotRetriedOnRedelivery)
     });
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
+  source->step();
   source->step();
 
   source->emit<NodeTraversedEvent>(Priority::NORMAL, std::string("n2"), 2u);
@@ -649,8 +669,10 @@ TEST(OrderActionsTest, EdgeLeftOnlyStopsActionsForThatEdge)
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e3"), 3u);
   source->step();
+  source->step();
 
   source->emit<EdgeEnteredEvent>(Priority::NORMAL, std::string("e5"), 5u);
+  source->step();
   source->step();
 
   source->emit<EdgeLeftEvent>(Priority::NORMAL, std::string("e3"), 3u);
