@@ -307,6 +307,10 @@ void OrderActions::start_action(
   source_->emit<ExecuteActionEvent>(
     execution::Priority::NORMAL, std::move(request),
     std::move(action_execution));
+
+  // TODO(eileentyz): Remove this internal pump once Handler owns pumping shared strategy
+  // engines. Until then it is required to dispatch action requests in production.
+  source_->step();
 }
 
 void OrderActions::update_action_status(
