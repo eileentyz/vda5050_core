@@ -19,6 +19,7 @@
 #ifndef VDA5050_CORE__CLIENT__STRATEGIES__STATE_REPORTING_HPP_
 #define VDA5050_CORE__CLIENT__STRATEGIES__STATE_REPORTING_HPP_
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -44,8 +45,8 @@ using StateReporter = std::function<void(const types::State&)>;
 /// traversal, and action strategies. On each step this strategy:
 /// - clears `executing_order` once the order is complete (route fully traversed
 ///   and every action terminal, i.e. FINISHED/FAILED);
-/// - reports the current State through a `StateReporter` hook, but only when it
-///   has changed since the last report.
+/// - reports the current State through a `StateReporter` hook when it changes
+///   or when the heartbeat interval expires.
 ///
 /// Out of scope: instantAction state handling and real transport. Fields owned
 /// by components that may not exist yet (driving, paused, AGV position, velocity,
@@ -54,7 +55,9 @@ using StateReporter = std::function<void(const types::State&)>;
 class StateReporting : public execution::StrategyInterface
 {
 public:
-  StateReporting();
+  /// \brief Construct with the maximum interval between State reports.
+  explicit StateReporting(
+    std::chrono::milliseconds heartbeat_interval = std::chrono::seconds(30));
 
   /// \brief Resolve the execution resource that carries the State.
   void init(std::shared_ptr<execution::ContextInterface> context) override;
@@ -71,6 +74,9 @@ private:
 
   /// \brief Last State handed to the reporter; used to report only on change.
   std::optional<types::State> last_reported_;
+
+  std::chrono::milliseconds heartbeat_interval_;
+  std::optional<std::chrono::steady_clock::time_point> last_report_time_;
 };
 
 }  // namespace client

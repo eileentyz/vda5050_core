@@ -18,6 +18,7 @@
 
 #include <gmock/gmock.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -268,6 +269,29 @@ TEST(StateReportingTest, KeepsExecutingWhileActionNonTerminal)
 
     EXPECT_TRUE(execution->is_executing_order());
   }
+}
+
+// Test 10: An unchanged State is periodically reported as a heartbeat.
+TEST(StateReportingTest, ReportsHeartbeatWhenStateIsUnchanged)
+{
+  auto context = make_context();
+  types::State seeded;
+  seeded.order_id = "o1";
+  set_state(context, seeded);
+
+  StateReporting strategy(std::chrono::milliseconds::zero());
+  strategy.init(context);
+
+  std::vector<types::State> reports;
+  strategy.set_reporter(
+    [&reports](const types::State& s) { reports.push_back(s); });
+
+  strategy.step(context);
+  strategy.step(context);
+
+  ASSERT_EQ(reports.size(), 2u);
+  EXPECT_EQ(reports[0], seeded);
+  EXPECT_EQ(reports[1], seeded);
 }
 
 }  // namespace

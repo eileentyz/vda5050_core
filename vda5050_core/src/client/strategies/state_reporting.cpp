@@ -59,7 +59,10 @@ bool order_complete(const types::State& state)
 
 }  // namespace
 
-StateReporting::StateReporting() = default;
+StateReporting::StateReporting(std::chrono::milliseconds heartbeat_interval)
+: heartbeat_interval_(heartbeat_interval)
+{
+}
 
 void StateReporting::init(std::shared_ptr<execution::ContextInterface> context)
 {
@@ -99,12 +102,17 @@ void StateReporting::step(std::shared_ptr<execution::ContextInterface> /*ctx*/)
     execution_->set_executing_order(false);
   }
 
-  // Report the assembled State, but only when it changed since the last report.
+  // Report on meaningful state changes and periodically as a heartbeat.
   if (!reporter_) return;
-  if (!last_reported_ || *last_reported_ != state)
+  const auto now = std::chrono::steady_clock::now();
+  const bool changed = !last_reported_ || *last_reported_ != state;
+  const bool heartbeat_due =
+    last_report_time_ && now - *last_report_time_ >= heartbeat_interval_;
+  if (changed || heartbeat_due)
   {
     reporter_(state);
     last_reported_ = std::move(state);
+    last_report_time_ = now;
   }
 }
 
