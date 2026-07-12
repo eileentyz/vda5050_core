@@ -23,6 +23,7 @@ source install/setup.bash
 ```
 
 **Recommended: run everything in one tmux session**
+> Make sure you are in the branch of `feat/turtlebot3-sim`!!
 
 ```bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
