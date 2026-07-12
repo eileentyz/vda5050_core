@@ -16,7 +16,7 @@ demo map of `turtlebot3_house` is bundled at
 
 > Make sure you are in the branch of `feat/turtlebot3-sim`!!
 
-**Build once:**
+**1. Build once:**
 
 ```bash
 cd ~/vda5050_core
@@ -24,7 +24,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-**Recommended: run everything in one tmux session**
+**2. Recommended: run everything in one tmux session**
 
 ```bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
@@ -45,7 +45,7 @@ After the session starts:
 ```
 4. Press **Enter** in the master pane to start sending the coffee delivery orders.
 
-**Stop everything:**
+**3. Stop everything:**
 
 ```bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
