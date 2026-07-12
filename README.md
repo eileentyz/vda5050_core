@@ -14,6 +14,8 @@ and returns to base (one order at a time).
 demo map of `turtlebot3_house` is bundled at
 `vda5050_core_py/turtlebot3/maps/`.
 
+> Make sure you are in the branch of `feat/turtlebot3-sim`!!
+
 **Build once:**
 
 ```bash
@@ -23,7 +25,6 @@ source install/setup.bash
 ```
 
 **Recommended: run everything in one tmux session**
-> Make sure you are in the branch of `feat/turtlebot3-sim`!!
 
 ```bash
 cd ~/vda5050_core/vda5050_core_py/turtlebot3
