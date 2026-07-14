@@ -16,25 +16,37 @@ It provides reusable components for message handling, validation, MQTT communica
 - High-level client adapter API
 - C++ examples and Python integration support
 
-## Requirements
 
-- C++
-- ROS 2
+
+## Prerequisites
+
+- C++ 17
+- A ROS 2 workspace and a working ROS 2 environment
+- An MQTT broker reachable at `localhost:1883`
+
+The library depends on Paho MQTT C++, fmt, and nlohmann/json, which are resolved during the build.
+
+
+
 
 ## Build
 
-From the root of the ROS 2 workspace:
+From the root of your ROS 2 workspace:
 
 ```bash
 colcon build --packages-select vda5050_core
 source install/setup.bash
 ```
 
-## Quick Start
 
-Ensure that an MQTT broker is running on `localhost:1883`.
 
-Start the C++ client adapter example:
+## Running the Examples
+
+The package includes a client adapter example (the AGV side) and an order publisher (the master-control side) that talk to each other over MQTT.
+
+First, make sure an MQTT broker is running on `localhost:1883`.
+
+Start the client adapter example:
 
 ```bash
 ros2 run vda5050_core adapter_example
@@ -46,29 +58,33 @@ In another terminal, start the order publisher:
 ros2 run vda5050_core order_publisher
 ```
 
-The publisher  sends `factsheetRequest`, `stateRequest`, and `initPosition` before publishing a test order. It continues publishing order updates until the process is stopped.
+The publisher  sends `factsheetRequest`, `stateRequest`, and `initPosition`. Once the AGV position is initialized, it publishes a test order and continues sending order updates while the process is running. Press `Ctrl+C` to stop either program.
 
 ## Documentation
 
-Detailed guides are available under `[vda5050_core/docs/](vda5050_core/docs/README.md)`:
+Detailed guides are available under `vda5050_core/docs/`:
 
 
 | Guide                                                              | Description                                                         |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| [Getting Started](vda5050_core/docs/getting-started.md)            | Building the library and running the example applications           |
 | [Types and serialization](vda5050_core/docs/types.md)              | Creating VDA5050 message types and converting them to and from JSON |
 | [Client adapter](vda5050_core/docs/adapter.md)                     | Connecting VDA5050 order handling to robot-specific software        |
 | [Execution framework](vda5050_core/docs/execution.md)              | Lower-level execution strategies and contexts                       |
 | [Architecture](vda5050_core/docs/design.md)                        | Architecture of `vda5050_core::execution`                           |
 | [Migration from Open-RMF](vda5050_core/docs/migration-from-rmf.md) | Migrating from `rmf_fleet_adapter` to `vda5050_core`                |
 
+
+
+
 ## Examples
+
 Runnable C++ examples are available under [Examples](vda5050_core/examples/), covering the client adapter, order publishing, and the execution framework. See [Getting Started](vda5050_core/docs/getting-started.md) for how to build and run them.
 
-## Contributing
-Contributions are welcome! All contributions are submitted under the Apache License 2.0.
+## How to Contribute
 
-Contributors must sign off each commit to certify compliance with the Developer Certificate of Origin:
+Contributions are welcome! 
+
+All contributions are submitted under the Apache License 2.0. Contributors must sign off each commit to certify compliance with the Developer Certificate of Origin:
 
 ```text
 Signed-off-by: Your Name <your.email@example.com>
