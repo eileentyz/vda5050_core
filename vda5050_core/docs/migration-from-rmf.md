@@ -219,7 +219,9 @@ class RobotAPI
 Open-RMF-specific code such as the following will be replaced: 
 
 ```cpp
-rmf_fleet_adapter::agv::Adapter rmf_fleet_adapter::agv::RobotCommandHandle rmf_fleet_adapter::agv::RobotUpdateHandle 
+rmf_fleet_adapter::agv::Adapter 
+rmf_fleet_adapter::agv::RobotCommandHandle 
+rmf_fleet_adapter::agv::RobotUpdateHandle 
 ```
 
 Keeping these layers separate makes it easier to reuse the existing robot integration.
