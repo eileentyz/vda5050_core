@@ -65,31 +65,29 @@ These robot-specific methods can usually remain in place. The main task is to co
 
 A typical Open-RMF robot integration follows this structure:
 
-```text
-Open-RMF
-    |
-rmf_fleet_adapter
-    |
-RobotCommandHandle / robot-specific API
-    |
-Robot
+```mermaid
+flowchart TD
+    A[Open-RMF]
+    B[rmf_fleet_adapter]
+    C[RobotCommandHandle]
+    D[Robot-specific API]
+    E[Robot]
+
+    A --> B --> C --> D --> E
 ```
 
 After migration, the integration follows this structure:
 
-```text
-VDA5050 master control
-    |
-    | MQTT
-    v
-vda5050_core client adapter
-    |
-    | Navigation, action and localization callbacks
-    v
-Robot-specific API
-    |
-    v
-Robot
+```mermaid
+flowchart TD
+    A[VDA5050 master control]
+    B[vda5050_core client adapter]
+    C[Robot-specific API]
+    D[Robot]
+
+    A -->|MQTT| B
+    B -->|Navigation, action, and localization callbacks| C
+    C --> D
 ```
 
 The robot driver and robot-specific API normally remain unchanged. The Open-RMF registration, callbacks, and state updates are replaced.
