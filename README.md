@@ -26,9 +26,6 @@ It provides reusable components for message handling, validation, MQTT communica
 
 The library depends on Paho MQTT C++, fmt, and nlohmann/json, which are resolved during the build.
 
-
-
-
 ## Build
 
 From the root of your ROS 2 workspace:
@@ -40,7 +37,7 @@ source install/setup.bash
 
 
 
-## Running the Examples
+## Initial Examples
 
 The package includes a client adapter example (the AGV side) and an order publisher (the master-control side) that talk to each other over MQTT.
 
@@ -72,26 +69,3 @@ Detailed guides are available under `vda5050_core/docs/`:
 | [Execution framework](vda5050_core/docs/execution.md)              | Lower-level execution strategies and contexts                       |
 | [Architecture](vda5050_core/docs/design.md)                        | Architecture of `vda5050_core::execution`                           |
 | [Migration from Open-RMF](vda5050_core/docs/migration-from-rmf.md) | Migrating from `rmf_fleet_adapter` to `vda5050_core`                |
-
-
-
-
-## Examples
-
-Runnable C++ examples are available under [Examples](vda5050_core/examples/), covering the client adapter, order publishing, and the execution framework. See [Getting Started](vda5050_core/docs/getting-started.md) for how to build and run them.
-
-## How to Contribute
-
-Contributions are welcome! 
-
-All contributions are submitted under the Apache License 2.0. Contributors must sign off each commit to certify compliance with the Developer Certificate of Origin:
-
-```text
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-See [Contributing](vda5050_core/CONTRIBUTING.md)  for the full contribution guidelines.
-
-## License
-
-This project is licensed under the Apache License 2.0.
