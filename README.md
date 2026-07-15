@@ -45,11 +45,11 @@ vda5050_core/
 
 | Document                                                      | Contents                                         |
 | ------------------------------------------------------------- | ------------------------------------------------ |
-| `[docs/design.md](vda5050_core/docs/design.md)`               | Architecture and design rationale                |
-| `[docs/execution.md](vda5050_core/docs/execution.md)`         | Building custom logic on the execution framework |
-| `[docs/client-adapter.md](vda5050_core/docs/client-adapter.md)`             | Integrating an AGV using the client adapter      |
-| `[docs/types.md](vda5050_core/docs/types.md)` | Message types and JSON conversion                |
-| `[docs/rmf-migration.md](vda5050_core/docs/rmf-migration.md)` | Porting an Open-RMF fleet adapter                |
+| [docs/design.md](vda5050_core/docs/design.md)              | Architecture and design rationale                |
+| [docs/execution.md](vda5050_core/docs/execution.md)         | Building custom logic on the execution framework |
+| [docs/client-adapter.md](vda5050_core/docs/client-adapter.md)             | Integrating an AGV using the client adapter      |
+| [docs/types.md](vda5050_core/docs/types.md) | Message types and JSON conversion                |
+| [docs/rmf-migration.md](vda5050_core/docs/rmf-migration.md) | Porting an Open-RMF fleet adapter                |
 
 
 Start with `adapter.md` to integrate a robot; start with `design.md` to understand or extend the library.
