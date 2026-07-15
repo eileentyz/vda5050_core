@@ -22,7 +22,7 @@ After completing this guide, the robot integration should be able to:
 ## Contents
 
 - [Before You Begin](#before-you-begin)
-- [Migration Overview](#migration-overview)
+- [Overview](#overview)
 - [What You Can Keep](#what-you-can-keep)
 - [What You Must Replace](#what-you-must-replace)
 - [Conceptual Mapping](#conceptual-mapping)
@@ -61,7 +61,7 @@ robot_api->action_completed();
 
 These robot-specific methods can usually remain in place. The main task is to connect them to the `vda5050_core` adapter instead of `rmf_fleet_adapter`.
 
-## Migration Overview
+## Overview
 
 A typical Open-RMF robot integration follows this structure:
 
