@@ -2,7 +2,7 @@
 
 This document describes the rmf_migration Python API, a compatibility layer that lets an existing Open-RMF fleet adapter be moved onto VDA5050 with minimal changes to the robot integration code.
 
-## Migration Outcome
+## 1. Scope
 
 After completing this guide, the robot integration should be able to:
 
@@ -17,26 +17,9 @@ After completing this guide, the robot integration should be able to:
 >
 > Traffic scheduling, negotiation, task allocation, doors, lifts, and charging workflows must be provided by the VDA5050 master control or another external system.
 
-## Contents
 
-- [Before You Begin](#before-you-begin)
-- [Overview](#overview)
-- [What You Can Keep](#what-you-can-keep)
-- [What You Must Replace](#what-you-must-replace)
-- [Conceptual Mapping](#conceptual-mapping)
-- [Important Behavioural Differences](#important-behavioural-differences)
-- [Migration Steps](#migration-steps)
-  - [1. Separate Robot Logic from Open-RMF Logic](#1-separate-robot-logic-from-open-rmf-logic)
-  - [2. Replace Open-RMF Adapter Setup](#2-replace-open-rmf-adapter-setup)
-  - [3. Replace Path Handling with](#3-replace-path-handling-with-on_navigate) `on_navigate()`
-  - [4. Replace Action Handling with](#4-replace-action-handling-with-on_action) `on_action()`
-  - [5. Replace Robot Initialization with](#5-replace-robot-initialization-with-on_localize) `on_localize()`
-  - [6. Replace](#6-replace-robotupdatehandle-with-statemanager) `RobotUpdateHandle` [with](#6-replace-robotupdatehandle-with-statemanager) `StateManager`
-  - [7. Start the Adapter and Update Loop](#7-start-the-adapter-and-update-loop)
-- [Configuration Changes](#configuration-changes)
-- [Testing the Migrated Adapter](#testing-the-migrated-adapter)
 
-## Before You Begin
+## 2. Before You Begin
 
 This guide assumes that the existing Open-RMF integration already contains: 
 
@@ -59,7 +42,7 @@ robot_api->action_completed();
 
 These robot-specific methods can usually remain in place. The main task is to connect them to the `vda5050_core` adapter instead of `rmf_fleet_adapter`.
 
-## Overview
+## 3. Overview
 
 A typical Open-RMF robot integration follows this structure:
 
@@ -73,6 +56,8 @@ flowchart TD
 
     A --> B --> C --> D --> E
 ```
+
+
 
 After migration, the integration follows this structure:
 
@@ -88,9 +73,11 @@ flowchart TD
     C --> D
 ```
 
+
+
 The robot driver and robot-specific API normally remain unchanged. The Open-RMF registration, callbacks, and state updates are replaced.
 
-## What You Can Keep
+### 3.1 What You Can Keep
 
 The following components can usually be retained:
 
@@ -104,7 +91,7 @@ The following components can usually be retained:
 
 Some method parameters may need to be adapted to accept VDA5050 node, edge, map, and action information.
 
-## What You Must Replace
+### 3.2 What You Must Replace
 
 The following Open-RMF-facing components are replaced:
 
@@ -126,7 +113,9 @@ The replacement uses:
 - execution objects for reporting completion or failure
 - `StateManager` for reporting robot state
 
-## Conceptual Mapping
+
+
+## 4. Conceptual Mapping
 
 The mapping is conceptual rather than strictly one-to-one because Open-RMF and VDA5050 have different responsibilities.
 
@@ -145,15 +134,17 @@ The mapping is conceptual rather than strictly one-to-one because Open-RMF and V
 | Fleet and robot names          | Manufacturer and serial number in MQTT topics           |
 
 
-## Important Behavioural Differences
 
-### - One Destination Is Dispatched at a Time
+
+## 5. Important Behavioural Differences
+
+### 5.1 One Destination Is Dispatched at a Time
 
 Open-RMF may provide a path containing multiple waypoints. The `vda5050_core` adapter dispatches released VDA5050 nodes sequentially.
 
 The navigation callback should send the current destination to the robot and report completion only after the robot physically reaches that destination.
 
-### - Completion Must Be Reported Explicitly
+### 5.2 Completion Must Be Reported Explicitly
 
 Sending a command to the robot does not complete the VDA5050 request. 
 
@@ -161,7 +152,7 @@ The application should retain the execution object and call `finished()` only af
 
 If the command fails, report the failure using the failure API provided by the adapter version being used.
 
-### - MQTT Replaces RMF Schedule Communication
+### 5.3 MQTT Replaces RMF Schedule Communication
 
 The robot communicates with a VDA5050 master through MQTT topics.
 
@@ -179,15 +170,19 @@ uagv/v2/Manufacturer/S001/order
 uagv/v2/Manufacturer/S001/state 
 ```
 
-### - Fleet Coordination Is Provided Externally
+
+
+### 5.4 Fleet Coordination Is Provided Externally
 
 The VDA5050 master control generates and releases order nodes and edges. 
 
 The client adapter does not register an RMF traffic graph or perform RMF schedule negotiation.
 
-## Migration Steps
+## 6. Migration Steps
 
-## 1. Separate Robot Logic from Open-RMF Logic
+
+
+### 6.1 Separate Robot Logic from Open-RMF Logic
 
 Before modifying the adapter, identify which parts of the existing application are robot-specific and which parts depend on Open-RMF. 
 
@@ -224,7 +219,7 @@ rmf_fleet_adapter::agv::RobotUpdateHandle
 
 Keeping these layers separate makes it easier to reuse the existing robot integration.
 
-## 2. Replace Open-RMF Adapter Setup
+### 6.2 Replace Open-RMF Adapter Setup
 
 A simplified Open-RMF integration may create an adapter, add a fleet, and register a robot:
 
@@ -293,7 +288,7 @@ The values passed to `ProtocolAdapter::make()` define the MQTT topic identity.
 
 Each running MQTT client must use a unique client ID. Starting multiple clients with the same ID may cause the MQTT broker to disconnect one of them.
 
-## 3. Replace Path Handling with `on_navigate()`
+### 6.3 Replace Path Handling with `on_navigate()`
 
 An Open-RMF command handle may receive a complete path:
 
@@ -372,7 +367,7 @@ if (
 
 The next released node can then be dispatched.
 
-## 4. Replace Action Handling with `on_action()`
+### 6.4 Replace Action Handling with `on_action()`
 
 An Open-RMF adapter may execute an activity through a command handle:
 
@@ -427,7 +422,7 @@ if (
 
 If the robot cannot complete the action, report the failure using the failure method and parameters exposed by the current adapter API.
 
-## 5. Replace Robot Initialization with `on_localize()`
+### 6.5 Replace Robot Initialization with `on_localize()`
 
 Open-RMF integrations commonly register a robot with an initial map and position. 
 
@@ -469,7 +464,7 @@ adapter->on_localize(
 
 Updating the position allows the adapter to report that the robot position has been initialized.
 
-## 6. Replace `RobotUpdateHandle` with `StateManager`
+### 6.6 Replace `RobotUpdateHandle` with `StateManager`
 
 An Open-RMF integration may publish robot state through `RobotUpdateHandle`:
 
@@ -503,7 +498,7 @@ Depending on the version of `StateManager`, additional state setters may be avai
 
 Use only the setters exposed by the version of `vda5050_core` being deployed.
 
-## 7. Start the Adapter and Update Loop
+### 6.7 Start the Adapter and Update Loop
 
 Register all callbacks before starting the adapter:
 
@@ -535,7 +530,9 @@ Stop the adapter during shutdown:
 adapter->stop();
 ```
 
-## Configuration Changes
+
+
+## 7. Configuration Changes
 
 Remove or relocate settings that apply only to Open-RMF, including:
 
@@ -576,7 +573,7 @@ Coordinate frames and VDA5050 map IDs must be aligned with the master control.
 
 If the robot API uses another coordinate frame, retain the coordinate transformation at the robot API boundary.
 
-## Testing the Migrated Adapter
+## 8. Testing the Migrated Adapter
 
 Build and run the migrated adapter application together with an MQTT broker and the intended VDA5050 master control.
 
@@ -621,4 +618,3 @@ Reached node [N0]
 The robot-specific output should then confirm that the request reached the existing robot API.
 
 For a standalone reference implementation of the client adapter API, see `adapter_example.cpp`.
-
