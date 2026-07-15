@@ -1,159 +1,178 @@
 # VDA5050 Library and Support Tools
 
-`vda5050_core` is a C++17 library for building applications that communicate using VDA5050 2.0. It provides reusable components for both automated guided vehicle and autonomous mobile robot (AGV/AMR) integrations, as well as master-control applications.
+`vda5050_core` is a modern C++ library for developing applications that communicate using VDA5050 specification. It provides reusable components for both AGV-side and master-control implementations, including message types along with serialization and deserialization utilities, validation, execution utilities, MQTT communication and a high-level adapter API for robot integration.
 
-VDA5050 defines a common communication interface between mobile robots and master control systems. This library provides the message types, validation, communication tools, and execution framework needed to build VDA5050-compatible applications.
+The library is framework independent and can be integrated into standalone C++ applications, ROS 2 systems or existing robot software.
 
-Developers can use these components instead of implementing the full protocol from scratch.
-
-> **Project status:** This project is under active development. APIs and behavior may change as VDA5050 support evolves.
+> **Project status:** This project is under 🚧 active development. APIs and behavior may change as VDA5050 support evolves.
 
 ## Features
 
-- Strongly typed C++ representations of VDA5050 messages
-- JSON serialization and deserialization using VDA5050 field names
-- Validation for messages, orders, actions and states
-- MQTT transport and a typed VDA5050 protocol adapter
-- Event-driven execution components, strategies, contexts, and handlers
-- Libraries for both AGV-side clients and master-control applications
-- VDA5050 layout interchange format (LIF) loading and validation
-- Optional conversion support for ROS 2 `vda5050_interfaces` messages
+- **Complete VDA5050 message types** as plain C++ structs, with no dependency beyond the standard library.
+- **JSON serialization** that also works with ROS 2 vda5050_interfaces messages from the same implementation.
+- **Validation** of orders, instant actions, protocol limits, action conflicts, factsheet alignment and graph traversability.
+- **MQTT transport** built on Eclipse Paho, behind an interface that can be replaced or shared with other services.
+- **An execution framework** for composing reactive, non-blocking robot logic.
+- **A high-level AGV client** that turns VDA5050 orders into navigation and action callbacks.
+- **Layout (LIF) support** for loading and validating facility graphs.
+- **Python bindings**, including a compatibility layer for migrating Open-RMF fleet adapters.
 
-The main library APIs do not depend on `rclcpp`. However, the repository is packaged and built using ROS 2 `ament_cmake`.
+## Layout
 
-## Architecture
-
-The diagram below shows the main public components of the library. See the[execution design guide](vda5050_core/docs/design.md) for the detailed runtime model.
-
-```mermaid
-flowchart TB
-    AGV[Robot integration] --> Client[AGV client API]
-    MCS[Master-control application] --> Master[Master API]
-
-    Client --> Execution[Execution framework]
-    Client --> Validation[Validation]
-    Master --> Execution
-    Master --> Validation
-    Master --> Layout[Layout / LIF]
-
-    Execution --> Protocol[Protocol adapter and MQTT transport]
-    Master --> Protocol
-    Validation --> Types[Typed VDA5050 messages]
-    Layout --> Types
-    Protocol --> JSON[JSON serialization]
-    JSON --> Types
+```
+vda5050_core/
+  include/vda5050_core/
+    types/        VDA5050 message structs
+    json_utils/   JSON serialization and traits
+    validation/   Specification compliance checks
+    errors/       Error codes and factories
+    transport/    MQTT client interface and Paho implementation
+    execution/    Reactive execution framework
+    client/       AGV-side client and adapter
+    master/       Master-control side components
+    layout/       Layout Interchange Format (LIF)
+    logger/       Logging
+  examples/       Runnable examples
+  python/         Python bindings
+  test/           Unit and integration tests
+  docs/           Documentation
 ```
 
 
-
-
-
-## Requirements
-
-The continuous-integration build currently tests ROS 2 Humble and Jazzy. To build the package, you need:
-
-- ROS 2 with `ament_cmake`, `colcon`, and `rosdep`
-- A C++17 compiler and CMake 3.8 or newer
-- Eclipse Paho MQTT C and C++ libraries
-- `{fmt}`
-- `nlohmann/json`
-- An MQTT broker when running MQTT-based integrations or transport tests
-
-When `ENABLE_ROS2=ON`, the `vda5050_interfaces` package must also be available in the workspace.
-
-## Build
-
-Create a ROS 2 workspace and clone the repository into its `src` directory:
-
-```bash
-mkdir -p ~/vda5050_ws/src
-cd ~/vda5050_ws/src
-git clone https://github.com/ros-industrial/vda5050_core.git
-```
-
-Install declared dependencies from the workspace root:
-
-```bash
-cd ~/vda5050_ws
-rosdep install --from-paths src --ignore-src --rosdistro "$ROS_DISTRO" -r -y
-```
-
-Build and source the package:
-
-```bash
-colcon build --packages-select vda5050_core
-source install/setup.bash
-```
-
-The following CMake options are available:
-
-
-| Option           | Default | Purpose                                                  |
-| ---------------- | ------- | -------------------------------------------------------- |
-| `BUILD_EXAMPLES` | `ON`    | Build the included execution examples                    |
-| `BUILD_TESTING`  | `ON`    | Build tests and configure lint checks                    |
-| `ENABLE_ROS2`    | `OFF`   | Enable JSON conversion for `vda5050_interfaces` messages |
-
-
-For example, enable ROS 2 message conversion with:
-
-```bash
-colcon build --packages-select vda5050_core \
-  --cmake-args -DENABLE_ROS2=ON
-```
-
-
-
-## Run an Example
-
-The installed examples exercise the execution framework and do not require an MQTT broker. After building and sourcing the workspace, start with:
-
-```bash
-ros2 run vda5050_core engine_example
-```
-
-Other included examples are:
-
-
-| Executable            | Demonstrates                                                   |
-| --------------------- | -------------------------------------------------------------- |
-| `custom_base`         | Defining and identifying custom events, updates, and resources |
-| `provider_example`    | Publishing typed updates to registered listeners               |
-| `engine_example`      | Priority events and waiting for matching updates               |
-| `handler_integration` | Combining a context, strategy, engine, and handler             |
-
-
-
-
-## Use from CMake
-
-Installed targets are exported under the `vda5050_core::` namespace. Link only the component needed by your application, for example:
-
-```cmake
-find_package(vda5050_core REQUIRED)
-
-target_link_libraries(my_application
-  PRIVATE
-    vda5050_core::client
-    vda5050_core::json_utils
-)
-```
-
-Exported component targets include `types`, `json_utils`, `logger`, `errors`,`validation`, `transport`, `execution`, `client`, `layout`, and `master`.
 
 ## Documentation
 
 
-| Guide                                                              | Description                                                |
-| ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| [Types and serialization](vda5050_core/docs/types.md)              | Create VDA5050 C++ types and convert them to and from JSON |
-| [Usage](vda5050_core/docs/usage.md)                                | Use the protocol adapter and execution framework           |
-| [Execution design](vda5050_core/docs/design.md)                    | Understand execution components and their relationships    |
-| [Migration from Open-RMF](vda5050_core/docs/migration-from-rmf.md) | Map an `rmf_fleet_adapter` integration to `vda5050_core`   |
+| Document                                                      | Contents                                         |
+| ------------------------------------------------------------- | ------------------------------------------------ |
+| `[docs/design.md](vda5050_core/docs/design.md)`               | Architecture and design rationale                |
+| `[docs/execution.md](vda5050_core/docs/execution.md)`         | Building custom logic on the execution framework |
+| `[docs/adapter.md](vda5050_core/docs/adapter.md)`             | Integrating an AGV using the client adapter      |
+| `[docs/serialization.md](vda5050_core/docs/serialization.md)` | Message types and JSON conversion                |
+| `[docs/rmf_migration.md](vda5050_core/docs/rmf_migration.md)` | Porting an Open-RMF fleet adapter                |
+
+
+Start with `adapter.md` to integrate a robot; start with `design.md` to understand or extend the library.
+
+## Requirements
+
+- C++17
+- CMake 3.8 or newer
+- [Eclipse Paho MQTT C++](https://github.com/eclipse-paho/paho.mqtt.cpp) 1.5.0
+- [nlohmann/json](https://github.com/nlohmann/json)
+- [fmt](https://github.com/fmtlib/fmt)
+- pybind11 (only for the Python bindings)
+- `vda5050_interfaces` (only when `ENABLE_ROS2=ON`)
+
+The package builds with `ament_cmake` and is tested against ROS 2 Humble and Jazzy, with GCC and Clang, under address and thread sanitizers.
+
+## Building
+
+```bash
+sudo apt install libpaho-mqtt-dev libpaho-mqttpp-dev
+
+mkdir -p ws/src && cd ws/src
+git clone https://github.com/ros-industrial/vda5050_core.git
+cd ..
+
+colcon build --packages-select vda5050_core
+source install/setup.bash
+```
+
+
+
+### Options
+
+
+| Option           | Default | Effect                                                          |
+| ---------------- | ------- | --------------------------------------------------------------- |
+| `ENABLE_ROS2`    | `OFF`   | Serialize `vda5050_interfaces` messages as well as native types |
+| `BUILD_PYTHON`   | `ON`    | Build the Python bindings                                       |
+| `BUILD_EXAMPLES` | `ON`    | Build the examples                                              |
+| `BUILD_TESTING`  | `ON`    | Build the tests and run linters                                 |
+
+
+```bash
+colcon build --cmake-args -DENABLE_ROS2=ON
+```
+
+
+
+## Quick Start
+
+An AGV client that answers orders from a master control:
+
+```cpp
+#include "vda5050_core/client/adapter/adapter.hpp"
+#include "vda5050_core/execution/protocol_adapter.hpp"
+#include "vda5050_core/transport/mqtt_client_interface.hpp"
+
+using namespace vda5050_core;
+
+int main()
+{
+  auto mqtt_client = transport::create_default_client_unique(
+    "tcp://localhost:1883", "agv_1");
+
+  auto protocol_adapter = execution::ProtocolAdapter::make(
+    std::move(mqtt_client), "uagv", "2.0.0", "Manufacturer", "S001");
+
+  auto adapter = client::adapter::Adapter::make(protocol_adapter);
+
+  adapter->on_navigate(
+    [](auto node_request, auto edge_request, auto execution) {
+      // Drive to node_request.node_position(), then:
+      execution->finished();
+    });
+
+  adapter->start();
+
+  // ... run ...
+
+  adapter->stop();
+}
+```
+
+CMake integration:
+
+```cmake
+find_package(vda5050_core REQUIRED)
+
+target_link_libraries(my_agv PRIVATE vda5050_core::client)
+```
+
+Available targets: `vda5050_core::types`, `::json_utils`, `::validation`, `::errors`, `::transport`, `::execution`, `::client`, `::master`, `::layout`, `::logger`.
+
+## Examples
+
+Runnable against a local broker (`mosquitto -d`):
+
+
+| Example                                      | Shows                                  |
+| -------------------------------------------- | -------------------------------------- |
+| `examples/client/adapter_example.cpp`        | A complete AGV client                  |
+| `examples/master/order_publisher.cpp`        | Dispatching an order                   |
+| `examples/execution/handler_integration.cpp` | Context, Strategy and Handler together |
+| `examples/execution/engine_example.cpp`      | Event queues and wait conditions       |
+| `examples/execution/provider_example.cpp`    | Update broadcast                       |
+| `examples/execution/custom_base.cpp`         | Defining custom Updates and Events     |
 
 
 
 
-## Contributing and License
+## Testing
 
-Contributions must include a Developer Certificate of Origin sign-off. See[CONTRIBUTING.md](CONTRIBUTING.md) for details. This project is licensed under the [Apache License 2.0](LICENSE).
+```bash
+colcon test --packages-select vda5050_core
+colcon test-result --verbose
+```
+
+Integration tests need a broker on `localhost:1883`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Commits must carry a `Signed-off-by` line certifying the [Developer Certificate of Origin](https://developercertificate.org/).
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
