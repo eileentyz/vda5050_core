@@ -1,42 +1,53 @@
 # vda5050_core::types and vda5050_core::json_utils
 
-`vda5050_core` provides strongly typed C++ representations of VDA5050 2.0 messages and utilities for converting them to and from JSON. 
+This document explains how `vda5050_core` converts VDA5050 message types to and from JSON.
 
-This guide uses an `Order` as an example, but the same conversion pattern applies to other VDA5050 messages, including: 
+## 1. Overview
 
-- `State`
-- `InstantActions`
-- `Connection`
-- `Factsheet`
-- `Visualization`
+The library keeps the VDA5050 data types separate from the JSON conversion code.
 
-## Headers and Namespaces
-
-Include the message type you want to use and the serialization header:
+- The `vda5050_core::types` namespace contains C++ structs that represent VDA5050 messages.
+- The `vda5050_core::json_utils` namespace provides functions that convert these structs to and from JSON.
 
 ```cpp
-#include <nlohmann/json.hpp>
-
-#include "vda5050_core/json_utils/serialization.hpp"
-#include "vda5050_core/types/order.hpp"
+#include "vda5050_core/types/order.hpp"           // struct only
+#include "vda5050_core/json_utils/serialization.hpp"  // adds JSON
 ```
 
-The C++ types are defined in `vda5050_core::types namespace`. Their members use `snake_case`, while serialized JSON uses the VDA5050 field names:
+This separation allows the VDA5050 types to be used without requiring JSON support. The JSON conversion uses `nlohmann::json`. After including the serialization header, VDA5050 types can be converted directly.
+
+```cpp
+using namespace vda5050_core;
+
+types::Order order;
+order.order_id = "order_1";
+order.order_update_id = 0;
+
+// Serialize
+nlohmann::json j = order;
+std::string payload = j.dump();
+
+// Deserialize
+types::Order parsed = nlohmann::json::parse(payload);
+```
+
+`ProtocolAdapter` uses the same JSON conversion internally. This means that `publish<T>()` and `subscribe<T>()` do not need a separate serializer.
+
+## 2. Naming Convention
+
+The VDA5050 specification uses `lowerCamelCase` for JSON field names. The C++ types use `snake_case` . The serializer converts between the two naming styles.
 
 
-| C++ member             | JSON field      |
-| ---------------------- | --------------- |
-| `header.header_id`     | `headerId`      |
-| `header.serial_number` | `serialNumber`  |
-| `order_id`             | `orderId`       |
-| `order_update_id`      | `orderUpdateId` |
-| `sequence_id`          | `sequenceId`    |
-| `node_position`        | `nodePosition`  |
+| C++                    | JSON           |
+| ---------------------- | -------------- |
+| `order.order_id`       | `orderId`      |
+| `action.blocking_type` | `blockingType` |
+| `state.agv_position`   | `agvPosition`  |
 
 
+The JSON field names must follow the VDA5050 specification.
 
-
-## Create and Serialize an Order
+## 3. Create and Serialize an Order
 
 This complete example creates an order with two nodes and one edge, converts it to JSON, and converts it back to the strongly typed C++ representation `Order`:
 
@@ -110,7 +121,7 @@ int main()
 
 Assigning a VDA5050 type to `nlohmann::json` calls the repository serializers. Use `dump()` for compact transport data and `dump(2)` for readable logs.
 
-## Deserialize an Incoming Payload
+## 4. Deserialize an Incoming Payload
 
 To deserialize an incoming JSON string, parse the JSON text first into a `nlohmann::json` object, then convert it to the expected VDA5050 type with `get<T>()`:
 
@@ -141,7 +152,7 @@ void handle_order_payload(const std::string& payload)
 
 `nlohmann::json::parse()` throws an exception when the JSON text is malformed. Converting with `get<T>()`can also throw when a required field is missing, a field has the wrong JSON type, or a timestamp or enum value cannot be converted.
 
-## Required and Optional Fields
+## 5. Required and Optional Fields
 
 The serializers read required fields with `json::at()`. For an `Order`, these include the header fields, `orderId`, `orderUpdateId`, `nodes`, and `edges`. If one of these fields is missing, deserialization throws an exception.
 
@@ -155,7 +166,7 @@ order.zone_set_id.reset();              // Omits "zoneSetId".
 
 An empty array and an absent optional field are different. Required arrays such as `Order::nodes` and `Order::edges` are always serialized, even when empty.
 
-## JSON Conversion and Validation
+## 6. JSON Conversion and Validation
 
 Successful JSON conversion only means that the fields could be converted to the expected C++ types. It does not guarantees that the message follows every VDA5050 rule. For example, an order may deserialize successfully but still contain:
 
@@ -176,7 +187,7 @@ const auto result =
 
 Additional validators are available under`vda5050_core/validation/` when graph structure, action conflicts, protocol limits, traversability, or master-side pre-send conditions also need to be checked.
 
-## CMake
+## 7. CMake
 
 The `json_utils` target provides the serialization utilities and includes the required message`types` and `nlohmann/json` dependencies.
 
@@ -191,16 +202,3 @@ target_link_libraries(my_application
 
 If an application only constructs C++ message types and does not convert JSON, link `vda5050_core::types` instead.
 
-## Using the Protocol Adapter
-
-Direct JSON conversion is useful for tests, logs, stored payloads, and custom transports implementations.
-
-When using `execution::ProtocolAdapter`, JSON serialization and deserialization are handled automatically. Before publishing a message, the adapter creates and assigns the VDA5050 header, including: 
-
-- `headerId` 
-- `timestamp` 
-- `version` 
-- `manufacturer` 
-- `serialNumber`
-
-The message is then serialized to JSON and published through the configured MQTT client. Incoming MQTT payloads are parsed and converted into the requested strongly typed VDA5050 message before the registered callback is called.

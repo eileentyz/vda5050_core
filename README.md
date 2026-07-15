@@ -17,7 +17,7 @@ The library is framework independent and can be integrated into standalone C++ a
 - **Layout (LIF) support** for loading and validating facility graphs.
 - **Python bindings**, including a compatibility layer for migrating Open-RMF fleet adapters.
 
-## Layout
+## Repository Structure
 
 ```
 vda5050_core/

@@ -1,8 +1,6 @@
-# Migration from Open-RMF
+# vda5050_core::python::rmf_migration
 
-This guide explains how to migrate an existing Open-RMF robot integration from `rmf_fleet_adapter` to the C++ `vda5050_core` client adapter.
-
-The migration preserves the robot-specific command and telemetry logic where possible. The Open-RMF-facing adapter layer is replaced with VDA5050 navigation, action, localization and state-reporting APIs.
+This document describes the rmf_migration Python API, a compatibility layer that lets an existing Open-RMF fleet adapter be moved onto VDA5050 with minimal changes to the robot integration code.
 
 ## Migration Outcome
 

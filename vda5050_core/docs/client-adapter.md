@@ -1,12 +1,10 @@
 # vda5050_core::client::adapter
 
-This guide explains how to integrate an AGV with a VDA5050 master control using the `vda5050_core::client::adapter` library.
+This document describes how to integrate an AGV with a VDA5050 master control using the `vda5050_core::client::adapter` library.
 
 ## 1. Overview
 
-The Adapter is a pready-to-use VDA5050 AGV client. 
-
-The lower-level `vda5050_core::execution` library provides the components needed to build a client. The Adapter connects these components together for a common setup:
+The Adapter is a ready-to-use VDA5050 AGV client. The lower-level `vda5050_core::execution` library provides the components needed to build a client. The Adapter connects these components together for a common setup:
 
 - one AGV
 - one VDA5050 master control
@@ -27,9 +25,7 @@ flowchart LR
 
 
 
-The Adapter handles the VDA5050 protocol and message flow.
-
-The robot integration is still responsible for:
+The Adapter handles the VDA5050 protocol and message flow. The robot integration is still responsible for:
 
 - controlling the AGV hardware
 - navigating to requested positions
@@ -49,7 +45,7 @@ The Adapter hides most of the lower-level execution components.
 | `UpdateBase` / `EventBase` | Surfaced as Requests and Executions                      |
 
 
-The integrator never implements a Strategy or a Context. Instead, three concepts are exposed:
+The integrator are also exposed to:
 
 - **Requests** describe what the AGV must do. They are read-only snapshots delivered to a callback (`NodeRequest`, `EdgeRequest`, `ActionRequest`, `LocalizationRequest`).
 - **Executions** are handles used to report back the outcome of a Request (`OrderExecution`, `ActionExecution`). They are the acknowledgement path.
@@ -73,24 +69,6 @@ All adapter classes are in `vda5050_core::client::adapter`.
 | `ActionRequest`   | Describes an instant action dispatched to robot software        |
 | `ActionExecution` | Reports action status, success, or failure                      |
 | `StateManager`    | Updates the AGV state snapshot published by the adapter         |
-
-
-
-
-### 1.2 Integration Flow
-
-A typical integration follows these steps:
-
-1. Create an MQTT client.
-2. Create a `ProtocolAdapter`.
-3. Create the client `Adapter`.
-4. Register navigation, action, and localization callbacks.
-5. Get the `StateManager`.
-6. Start the Adapter.
-7. Handle requests from the Adapter.
-8. Report completion through the Execution handles.
-9. Stop the Adapter during application shutdown.
-
 
 
 ## 2. Getting Started
