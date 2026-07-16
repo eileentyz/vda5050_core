@@ -4,7 +4,7 @@
 
 The library is framework-independent and can be integrated into standalone C++ applications, ROS 2 systems or existing robot software.
 
-> **Project status:** This project is under 🚧 active development. APIs and behavior may change as VDA5050 support evolves.
+> **Status:** This project is under active development 🚧
 
 
 
