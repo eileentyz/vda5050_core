@@ -22,21 +22,21 @@ flowchart LR
 
 ### Table of Contents
 
-- [Start from the Existing Example](#1-start-from-the-existing-example)
-- [Build and Run the Packaged Example](#2-build-and-run-the-packaged-example)
-- [Create Your Own Robot Integration](#3-create-your-own-robot-integration)
-  - [Configure the Adapter](#31-configure-the-adapter)
-  - [Connect Navigation](#32-connect-navigation)
-  - [Report Navigation Completion](#33-report-navigation-completion)
-  - [Connect Actions](#34-connect-actions)
-  - [Connect Localization](#35-connect-localization)
-  - [Report Robot State](#36-report-robot-state)
-  - [Coordinate Frames](#37-coordinate-frames)
-  - [Configure the Factsheet](#38-configure-the-factsheet)
-  - [Start and Stop](#39-start-and-stop)
-  - [CMake Integration](#310-cmake-integration)
-- [Build and Test Your Robot Integration](#4-build-and-test-your-robot-integration)
-- [Integration Checklist](#5-integration-checklist)
+- [1. Start from the Existing Example](#1-start-from-the-existing-example)
+- [2. Build and Run the Packaged Example](#2-build-and-run-the-packaged-example)
+- [3. Create Your Own Robot Integration](#3-create-your-own-robot-integration)
+  - [3.1 Change the MQTT Configuration and Robot Identity](#31-change-the-mqtt-configuration-and-robot-identity)
+  - [3.2 Replace Simulated Navigation](#32-replace-simulated-navigation)
+  - [3.3 Report Navigation Completion](#33-report-navigation-completion)
+  - [3.4 Replace Simulated Actions](#34-replace-simulated-actions)
+  - [3.5 Connect Localization](#35-connect-localization)
+  - [3.6 Replace Simulated State with Real Robot State](#36-replace-simulated-state-with-real-robot-state)
+  - [3.7 Coordinate Frames](#37-coordinate-frames)
+  - [3.8 Configure the Factsheet](#38-configure-the-factsheet)
+  - [3.9 Keep the Existing Start and Stop](#39-keep-the-existing-start-and-stop-flow) 
+  - [3.10 Update CMake](#310-update-cmake)
+- [4. Build and Test Your Robot Integration](#4-build-and-test-your-robot-integration)
+- [5. Summary of Required Changes](#5-summary-of-required-changes)
 
 
 
@@ -48,30 +48,38 @@ Use the following file as the starting template:
 examples/client/adapter_example.cpp
 ```
 
-The example is one complete C++ application. The sections in this guide explain how to modify different parts of that application; they are not separate programs.
+The example already handles:
 
-The example demonstrates:
+- MQTT communication,
+- VDA5050 order processing,
+- adapter startup and shutdown,
+- navigation callbacks,
+- action callbacks,
+- localization callbacks, and
+- robot state reporting.
 
-- connecting to an MQTT broker
-- creating the client adapter
-- receiving navigation requests
-- receiving action requests
-- receiving localization requests
-- updating robot state
-- starting and stopping the adapter
+To integrate a real robot, copy the example into the robot integration package and replace the simulated behaviour with the robot's SDK, ROS 2 interface, or control API.
 
-The example does not control a real robot. It simulates robot behaviour using delays.
+> Calls such as `robot_driver.navigate_to()` in this guide are placeholders. They are not part of `vda5050_core`.
 
-For example:
 
-```
-std::this_thread::sleep_for(std::chrono::seconds(2));
-execution->finished();
-```
 
-This waits for two seconds, pretends that the robot reached the requested node, and reports successful completion.
+### What You Need to Change
 
-To integrate a real robot, copy the example and replace the simulated behaviour with the robot's actual interface.
+
+| Part                  | What to replace                                               |
+| --------------------- | ------------------------------------------------------------- |
+| MQTT configuration    | Broker address and MQTT client ID                             |
+| Robot identity        | Manufacturer and serial number                                |
+| Navigation callback   | Simulated delay with the robot navigation command             |
+| Navigation result     | Report completion or failure from the robot navigation status |
+| Action callback       | Simulated action with supported robot commands                |
+| Localization callback | Connect to the robot localization interface                   |
+| State updates         | Use real position, battery, movement, and safety data         |
+| Factsheet             | Describe the actual robot capabilities                        |
+
+
+
 
 ## 2. Build and Run the Packaged Example
 
@@ -108,34 +116,56 @@ Run this example first to confirm that the MQTT connection and client-adapter fl
 After the packaged example works:
 
 1. Copy `adapter_example.cpp` into the `src/` directory of an existing robot integration package and rename it.
-  For example:
-  ```
-  my_robot_integration/
-    package.xml
-    CMakeLists.txt
-    src/
-      my_robot_vda5050_adapter.cpp
-  ```
-  If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.   
-2. Update the MQTT broker and robot identity.  
-3. Replace simulated navigation with the robot's navigation command.  
-4. Replace simulated actions with the robot's supported actions.  
-5. Connect localization when required.  
-6. Read real robot telemetry and update `StateManager`.  
-7. Report navigation and action completion or failure.  
-8. Build and run the new robot-specific application.  
+
+For example:
+
+```
+my_robot_integration/
+├── CMakeLists.txt
+├── package.xml
+└── src/
+    └── my_robot_vda5050_adapter.cpp
+```
+
+If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.   
+
+1. Update the MQTT broker and robot identity.
+2. Replace simulated navigation with the robot's navigation command.
+3. Replace simulated actions with the robot's supported actions.
+4. Connect localization when required.
+5. Read real robot telemetry and update `StateManager`.
+6. Report navigation and action completion or failure.
+7. Build and run the new robot-specific application.
 
 A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide. You also do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library.
 
-### 3.1 Configure the Adapter
+### 3.1 Change the MQTT Configuration and Robot Identity
 
 The first part of the integration application creates the MQTT connection and identifies the robot.
+
+Find:
 
 ```
 auto mqtt_client =
   vda5050_core::transport::create_default_client_unique(
     "tcp://localhost:1883",
-    "my-robot-client");
+    "adapter_example");
+
+auto protocol_adapter = ProtocolAdapter::make(
+  std::move(mqtt_client),
+  "uagv",
+  "2.0.0",
+  "Manufacturer",
+  "S001");
+```
+
+Replace the values with the deployment configuration:
+
+```
+auto mqtt_client =
+  vda5050_core::transport::create_default_client_unique(
+    "tcp://192.168.1.10:1883",
+    "robot_1_vda5050_adapter");
 
 auto protocol_adapter = ProtocolAdapter::make(
   std::move(mqtt_client),
@@ -143,9 +173,6 @@ auto protocol_adapter = ProtocolAdapter::make(
   "2.0.0",
   "MyCompany",
   "AGV-001");
-
-auto adapter = Adapter::make(protocol_adapter);
-auto state_manager = adapter->state_manager();
 ```
 
 Replace the example values with the configuration used by the robot integration.
@@ -163,7 +190,7 @@ Replace the example values with the configuration used by the robot integration.
 
 The MQTT client ID must be unique at the broker.
 
-The interface name, VDA5050 version, manufacturer, and serial number determine the robot's VDA5050 topic identity.
+The manufacturer and serial number must match the identity configured in the VDA5050 master.
 
 For example:
 
@@ -176,19 +203,33 @@ uagv/v2/MyCompany/AGV-001/connection
 
 
 
-### 3.2 Connect Navigation
+### 3.2 Replace Simulated Navigation
 
-The client adapter calls `on_navigate()` when a VDA5050 order asks the robot to move to the next node.
+The example currently simulates navigation using a delay:
 
-The callback receives:
+```
+adapter->on_navigate(
+  [state_manager](
+    NodeRequest node_request,
+    std::optional<EdgeRequest> edge_request,
+    std::shared_ptr<OrderExecution> execution)
+  {
+    std::thread(
+      [node_request, execution, state_manager]()
+      {
+        state_manager->set_driving(true);
 
-- a `NodeRequest`
-- an optional `EdgeRequest`
-- an `OrderExecution` handle
+        std::this_thread::sleep_for(
+          std::chrono::seconds(2));
 
-The packaged example simulates navigation by waiting for two seconds and then reporting success.
+        state_manager->set_driving(false);
+        execution->finished();
+      })
+      .detach();
+  });
+```
 
-A real integration should instead send the requested destination to the robot.
+Replace the delay with the robot's navigation command.
 
 ```
 std::shared_ptr<OrderExecution> active_navigation;
@@ -202,88 +243,57 @@ adapter->on_navigate(
 
     if (!position.has_value())
     {
-      execution->failed("Requested node has no position");
+      execution->failed(
+        "Requested node does not contain a position");
       return;
     }
 
-    // Replace this with the robot's actual navigation interface.
-    robot_api.navigate_to(
-      position.value().x,
-      position.value().y,
-      position.value().theta.value_or(0.0),
-      position.value().map_id);
-
     active_navigation = execution;
+
     state_manager->set_driving(true);
+
+    // Replace with the robot navigation interface.
+    robot_driver.navigate_to(
+      position->x,
+      position->y,
+      position->theta.value_or(0.0),
+      position->map_id);
   });
 ```
 
-`robot_api.navigate_to(...)` is only a placeholder.
+Do not call `execution->finished()` immediately after sending the navigation command.
 
-Replace it with the actual SDK, API, ROS 2 topic, service, or action used by the robot.
+Keep the execution handle until the robot reaches the destination or reports a failure.
 
-The optional `EdgeRequest` may contain information such as:
-
-- trajectory
-- speed constraints
-- edge length
-- rotation constraints
-
-Use this information only when it is required by the robot integration.
+The optional `EdgeRequest` may contain additional movement constraints, such as speed or trajectory information. Use it only when required by the robot.
 
 ### 3.3 Report Navigation Completion
 
-Sending a navigation command does not mean that the robot has already reached the destination.
-
-Do not call `finished()` immediately after sending the command.
-
-Keep the `OrderExecution` handle while navigation is active:
+Check the robot navigation result in the main loop or through the robot's completion callback.
 
 ```
-active_navigation = execution;
-```
-
-Then monitor the robot's navigation status:
-
-```
-void update_navigation_status()
+if (active_navigation &&
+    robot_driver.navigation_completed())
 {
-  if (!active_navigation)
-  {
-    return;
-  }
+  state_manager->set_driving(false);
 
-  if (robot_api.navigation_completed())
-  {
-    state_manager->set_driving(false);
+  active_navigation->finished();
+  active_navigation.reset();
+}
 
-    active_navigation->finished();
-    active_navigation.reset();
-    return;
-  }
+if (active_navigation &&
+    robot_driver.navigation_failed())
+{
+  state_manager->set_driving(false);
 
-  if (robot_api.navigation_failed())
-  {
-    state_manager->set_driving(false);
+  active_navigation->failed(
+    robot_driver.navigation_failure_reason());
 
-    active_navigation->failed(
-      "Robot could not reach the requested node");
-
-    active_navigation.reset();
-  }
+  active_navigation.reset();
 }
 ```
 
-Replace:
-
-```
-robot_api.navigation_completed()
-robot_api.navigation_failed()
-```
-
-with the actual status interface provided by the robot.
-
-Every navigation request should end with one final result:
+Every navigation request must end with either:
 
 ```
 execution->finished();
@@ -295,15 +305,29 @@ or:
 execution->failed("Failure reason");
 ```
 
-Call `finished()` only after the robot physically reaches the requested node.
+Call `finished()` only after the robot has actually reached the requested node.
 
-### 3.4 Connect Actions
+The example copies the requested node position into `StateManager` because movement is simulated. A real integration should report position using the robot's localization or odometry data.
 
-The client adapter calls `on_action()` when the robot receives an action request.
+### 3.4 Replace Simulated Actions
 
-The packaged example simulates action completion using a one-second delay.
+The example currently simulates an action using a one-second delay:
 
-A real integration should map supported VDA5050 action types to the robot's actual action commands.
+```
+adapter->on_action(
+  [](ActionRequest request,
+     std::shared_ptr<ActionExecution> execution)
+  {
+    execution->running();
+
+    std::this_thread::sleep_for(
+      std::chrono::seconds(1));
+
+    execution->finished();
+  });
+```
+
+Replace this with the supported robot actions:
 
 ```
 std::shared_ptr<ActionExecution> active_action;
@@ -315,20 +339,20 @@ adapter->on_action(
     if (request.action_type() == "startCharging")
     {
       execution->running();
-
-      // Replace this with the robot's actual action command.
-      robot_api.start_charging();
-
       active_action = execution;
+
+      // Replace with the robot action interface.
+      robot_driver.start_charging();
       return;
     }
 
     execution->failed(
-      "Unsupported action: " + request.action_type());
+      "Unsupported action: " +
+      request.action_type());
   });
 ```
 
-Only implement actions supported by the robot.
+Only implement action types supported by the robot.
 
 Use `ActionExecution` to report the action state.
 
@@ -343,139 +367,155 @@ Use `ActionExecution` to report the action state.
 | `failed(reason)`        | Reports `FAILED` with a reason               |
 
 
-For a long-running action, keep the execution handle and report the result later:
+For long-running actions, keep the execution handle and report the result later:
 
 ```
-void update_action_status()
+if (active_action &&
+    robot_driver.action_completed())
 {
-  if (!active_action)
-  {
-    return;
-  }
+  active_action->finished();
+  active_action.reset();
+}
 
-  if (robot_api.action_completed())
-  {
-    active_action->finished();
-    active_action.reset();
-    return;
-  }
+if (active_action &&
+    robot_driver.action_failed())
+{
+  active_action->failed(
+    robot_driver.action_failure_reason());
 
-  if (robot_api.action_failed())
-  {
-    active_action->failed("Robot action failed");
-    active_action.reset();
-  }
+  active_action.reset();
 }
 ```
 
-Some standard instant actions may be handled internally by the adapter. Other supported actions are passed to the registered callback.
+Use `ActionExecution` to report action progress:
+
+```
+execution->initializing();
+execution->running();
+execution->paused();
+execution->finished();
+execution->failed("Failure reason");
+```
+
+Do not block the adapter callback while waiting for a long-running action.
 
 ### 3.5 Connect Localization
 
-The client adapter calls `on_localize()` when the master control requests the robot to use a specific pose.
+The example immediately accepts the requested position:
 
 ```
 adapter->on_localize(
-  [&](LocalizationRequest request,
-      std::shared_ptr<ActionExecution> execution)
+  [state_manager](
+    LocalizationRequest request,
+    std::shared_ptr<ActionExecution> execution)
   {
-    // Replace this with the robot's actual localization interface.
-    robot_api.set_initial_pose(
-      request.x(),
-      request.y(),
-      request.theta(),
-      request.map_id());
+    execution->finished();
 
     state_manager->set_position(
       request.x(),
       request.y(),
       request.theta(),
       request.map_id());
-
-    execution->finished();
   });
 ```
 
-The packaged example immediately accepts the localization request.
-
-For a real robot:
-
-1. send the requested pose to the robot,
-2. wait for the robot to accept or complete localization, and
-3. report success or failure.
-
-If the robot does not support external localization, handle the request according to the application's requirements.
-
-### 3.6 Report Robot State
-
-The client adapter publishes the AGV state using information stored in `StateManager`.
-
-The robot integration should update `StateManager` using real telemetry from the robot.
-
-For example:
+Replace this with the robot localization interface:
 
 ```
-const auto pose = robot_api.current_pose();
+adapter->on_localize(
+  [&](LocalizationRequest request,
+      std::shared_ptr<ActionExecution> execution)
+  {
+    execution->running();
+
+    const bool accepted =
+      robot_driver.set_initial_pose(
+        request.x(),
+        request.y(),
+        request.theta(),
+        request.map_id());
+
+    if (accepted)
+    {
+      execution->finished();
+    }
+    else
+    {
+      execution->failed(
+        "Robot rejected the localization request");
+    }
+  });
+```
+
+The robot's actual position should continue to come from localization or odometry telemetry.
+
+### 3.6 Replace Simulated State with Real Robot State
+
+Obtain the state manager:
+
+```
+auto state_manager = adapter->state_manager();
+```
+
+Update it using real robot telemetry.
+
+### Position
+
+```
+const auto pose = robot_driver.current_pose();
 
 state_manager->set_position(
   pose.x,
   pose.y,
   pose.theta,
   pose.map_id);
-
-state_manager->set_driving(
-  robot_api.is_moving());
 ```
 
-Update the operating mode:
+
+
+### Driving state
+
+```
+state_manager->set_driving(
+  robot_driver.is_moving());
+```
+
+
+
+### Operating mode
 
 ```
 state_manager->set_operating_mode(
   vda5050_core::types::OperatingMode::AUTOMATIC);
 ```
 
-Update the battery state:
+
+
+### Battery
 
 ```
 vda5050_core::types::BatteryState battery{};
 
 battery.battery_charge =
-  robot_api.battery_percentage();
+  robot_driver.battery_percentage();
 
 battery.charging =
-  robot_api.is_charging();
+  robot_driver.is_charging();
 
 state_manager->set_battery_state(battery);
 ```
 
-Replace `robot_api` with the actual telemetry interface used by the robot.
+The integration may also update:
 
-`StateManager` may also support:
+- velocity,
+- paused state,
+- safety state,
+- distance since the last node,
+- loads,
+- errors, and
+- information messages.
 
-- velocity
-- paused state
-- safety state
-- operating mode
-- distance since the last node
-- loads
-- errors
-- information messages
-- action states
-
-Some order-related fields are managed internally by the adapter.
-
-These may include:
-
-- `orderId`
-- `orderUpdateId`
-- `nodeStates`
-- `edgeStates`
-- `lastNodeId`
-- `lastNodeSequenceId`
-
-The robot integration should update only the physical state and telemetry that it owns.
-
-State setter methods update the state used by the adapter's publication flow. They do not necessarily publish a message immediately after every setter call.
+Order-related fields such as the current order, node states, edge states, and last reached node are managed by the adapter.
 
 ### 3.7 Coordinate Frames
 
@@ -498,28 +538,34 @@ Keep coordinate transformations in one place to avoid inconsistent navigation an
 
 ### 3.8  Configure the Factsheet
 
-A factsheet describes the robot's capabilities and physical properties.
+Create a factsheet describing the real robot:
 
 ```
 vda5050_core::types::Factsheet factsheet{};
 
-// Populate the factsheet fields supported by the robot.
+// Populate the supported robot capabilities.
 
 adapter->set_factsheet(factsheet);
 ```
 
-The factsheet should describe the actual robot being integrated, including:
+The factsheet may include:
 
-- supported actions
-- physical dimensions
-- limits
-- protocol features
+- supported actions,
+- robot dimensions,
+- load capabilities,
+- velocity limits,
+- acceleration limits, and
+- supported protocol features.
 
-Configure the factsheet before calling `start()` when the application needs to respond to `factsheetRequest`.
+Configure it before starting the adapter.
 
-### 3.9 Start and Stop
+Do not advertise capabilities that the robot does not support.
 
-Register all callbacks before starting the adapter:
+### 3.9 Keep the Existing Start and Stop Flow
+
+The startup and shutdown section of the example can remain mostly unchanged.
+
+Register the callbacks first:
 
 ```
 adapter->on_navigate(...);
@@ -527,13 +573,13 @@ adapter->on_action(...);
 adapter->on_localize(...);
 ```
 
-Then start the adapter:
+Start the adapter:
 
 ```
 adapter->start();
 ```
 
-Keep the application running while the adapter is active:
+Update robot status while the application is running:
 
 ```
 while (running)
@@ -553,51 +599,55 @@ Stop the adapter during shutdown:
 adapter->stop();
 ```
 
-Calling `stop()` explicitly is recommended because it provides a clear shutdown order.
 
-### 3.10 CMake Integration
 
-Find the package:
+### 3.10 Update CMake
 
-```
-find_package(vda5050_core REQUIRED)
-```
-
-Link the client adapter:
+Add the executable:
 
 ```
-target_link_libraries(my_robot_adapter
-  PRIVATE
-    vda5050_core::client
+add_executable(
+  my_robot_vda5050_adapter
+  src/my_robot_vda5050_adapter.cpp
 )
 ```
 
-If the application directly creates the MQTT transport, it may also require:
+Link the required libraries:
 
 ```
-target_link_libraries(my_robot_adapter
+target_link_libraries(
+  my_robot_vda5050_adapter
   PRIVATE
     vda5050_core::client
     vda5050_core::transport
+    vda5050_core::logger
 )
 ```
 
-The exact required targets depend on the exported dependencies of the current branch.
+Install the executable:
+
+```
+install(
+  TARGETS my_robot_vda5050_adapter
+  DESTINATION lib/${PROJECT_NAME}
+)
+```
+
+Add the package dependency:
+
+```
+<depend>vda5050_core</depend>
+```
+
+
 
 ## 4. Build and Test Your Robot Integration
 
-The examples in this section use:
-
-package name: `my_robot_integration`  
-executable name: `my_robot_vda5050_adapter`  
-source file: `src/my_robot_vda5050_adapter.cpp`
-
-Replace these names with those used by the actual project.
-
-Build the robot integration package:
+Build the integration package:
 
 ```
-colcon build --packages-select my_robot_integration
+colcon build \
+  --packages-select my_robot_integration
 ```
 
 Source the workspace:
@@ -606,47 +656,41 @@ Source the workspace:
 source install/setup.bash
 ```
 
-Start the MQTT broker if required:
+Run the integration:
 
 ```
-mosquitto -d
+ros2 run \
+  my_robot_integration \
+  my_robot_vda5050_adapter
 ```
 
-Run the robot integration application:
+Confirm that:
+
+- the adapter connects to the MQTT broker,
+- navigation requests reach the robot,
+- navigation finishes only after arrival,
+- navigation failures are reported,
+- supported actions execute correctly,
+- unsupported actions are rejected,
+- localization requests reach the robot,
+- real robot state is reported, and
+- the adapter stops cleanly.
+
+
+
+## 5. Summary of Required Changes
+
+When adapting `adapter_example.cpp`, developers mainly need to replace:
 
 ```
-ros2 run my_robot_integration my_robot_vda5050_adapter
+MQTT settings
+Robot manufacturer and serial number
+Simulated navigation delay
+Simulated action delay
+Simulated localization handling
+Simulated position updates
+Factsheet contents
+CMake executable name
 ```
 
-Use `ros2 run` only when the application is built and installed as a ROS 2 executable. Otherwise, run the executable using the method required by the project.
-
-During testing, confirm that:
-
-1. the client adapter connects to the MQTT broker,
-2. navigation requests reach the robot interface,
-3. navigation is reported as finished only after the robot reaches the destination,
-4. navigation failures are reported correctly,
-5. supported actions are executed and reported correctly,
-6. real robot telemetry is updated through `StateManager`, and
-7. the client adapter shuts down cleanly.
-
-## 5. Integration Checklist
-
-Before testing a physical robot, confirm that:
-
-- the MQTT broker is reachable
-- the MQTT client ID is unique
-- the manufacturer and serial number are correct
-- the VDA5050 version matches the master control
-- navigation requests reach the robot
-- navigation completion is reported only after arrival
-- navigation failures are reported
-- supported actions are mapped to robot commands
-- unsupported actions are rejected
-- localization requests are handled correctly
-- robot positions use the correct coordinate frame
-- battery and operating mode are updated
-- the factsheet matches the robot's capabilities
-- the client adapter starts and stops cleanly
-- MQTT disconnection and reconnection have been tested
-
+The adapter creation, callback registration, startup loop, and shutdown flow can remain largely unchanged.
