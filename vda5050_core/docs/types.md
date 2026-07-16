@@ -1,4 +1,4 @@
-# vda5050_core::types and vda5050_core::json_utils
+# Types and Serialization
 
 This document explains how `vda5050_core` converts VDA5050 message types to and from JSON.
 
@@ -118,6 +118,8 @@ Use `dump(2)` for formatted, readable JSON:
 std::cout << json_order.dump(2) << std::endl;
 ```
 
+
+
 ## 4. Deserialize an Incoming Payload
 
 To deserialize an incoming JSON string, first parse it into a `nlohmann::json` object. Then convert it to the expected VDA5050 type using `get<T>()`.
@@ -156,6 +158,8 @@ void handle_order_payload(const std::string& payload)
 - a timestamp cannot be converted
 - an enum value is not supported
 
+
+
 ## 5. Required and Optional Fields
 
 Required fields must be present when a message is deserialized.
@@ -190,6 +194,8 @@ For example:
   "edges": []
 }
 ```
+
+
 
 ## 6. JSON Conversion and Message Validation
 
