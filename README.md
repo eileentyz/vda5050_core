@@ -130,7 +130,9 @@ int main()
     {
       // Pass the request to the robot navigation system.
       //
-      // This example immediately reports success. A real integration // should report completion only after the robot reaches the node. execution->finished();
+      // This example immediately reports success. A real integration 
+      // should report completion only after the robot reaches the node. 
+      execution->finished();
     });
 
   adapter->start();
