@@ -357,9 +357,8 @@ Only implement action types supported by the robot.
 Use `ActionExecution` to report the action state.
 
 
-|                         |                                              |
-| ----------------------- | -------------------------------------------- |
 | Method                  | Effect                                       |
+| ----------------------- | -------------------------------------------- |
 | `running()`             | Reports `RUNNING`                            |
 | `paused(description)`   | Reports `PAUSED`                             |
 | `finished()`            | Reports `FINISHED`                           |
