@@ -125,9 +125,7 @@ After the packaged example works:
 7. Report navigation and action completion or failure.
 8. Build and run the new robot-specific application.
 
-A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide.
-
-You do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library. From Step3 on ward, can refer to this guide below:
+A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide. You also do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library.
 
 ### 3.1 Configure the Adapter
 
