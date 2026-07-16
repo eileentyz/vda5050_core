@@ -1,17 +1,32 @@
-# vda5050_core::client::adapter
+# Client Adapter
 
-This document describes how to integrate an AGV with a VDA5050 master control using the `vda5050_core::client::adapter` library.
+This guide explains how to connect robot software to a VDA5050 master control using the client adapter in `vda5050_core::client::adapter`.
 
 ## 1. Overview
 
-The Adapter is a ready-to-use VDA5050 AGV client. The lower-level `vda5050_core::execution` library provides the components needed to build a client. The Adapter connects these components together for a common setup:
+The client adapter provides a high-level interface for building an AGV-side VDA5050 client.
 
-- one AGV
-- one VDA5050 master control
+It handles common VDA5050 functions such as:
+
 - MQTT communication
+- VDA5050 topic names
+- JSON conversion
+- order processing
 - navigation requests
-- action requests
-- AGV state reporting
+- instant actions
+- connection messages
+- state messages
+- factsheet messages
+
+The adapter handles the VDA5050 communication flow.
+
+The robot integration remains responsible for:
+
+- controlling the robot hardware
+- navigating to requested positions
+- performing robot-specific actions
+- reading robot state
+- reporting whether a request finished or failed
 
 ```mermaid
 flowchart LR
@@ -20,230 +35,339 @@ flowchart LR
     Navigation -->|finished or failed| Adapter
     Adapter -->|Action request| Actions[Robot action handler]
     Actions -->|status and completion| Adapter
-    State[Robot state] -->|StateManager updates| Adapter
+    Robot[Robot telemetry] -->|StateManager updates| Adapter
 ```
 
 
 
-The Adapter handles the VDA5050 protocol and message flow. The robot integration is still responsible for:
-
-- controlling the AGV hardware
-- navigating to requested positions
-- performing actions
-- updating the AGV state
-- reporting whether work finished or failed
-
-The Adapter hides most of the lower-level execution components.
 
 
-| Design component           | Provided by the Adapter as                               |
-| -------------------------- | -------------------------------------------------------- |
-| `ProtocolAdapter`          | Constructed by the integrator, passed to `Adapter::make` |
-| `Context`                  | `AgvContext`, created internally                         |
-| `Strategy`                 | Order acceptance and validation, created internally      |
-| `Handler`                  | The Adapter's internal dispatch loop                     |
-| `UpdateBase` / `EventBase` | Surfaced as Requests and Executions                      |
+## 2. Main APIs
+
+All client adapter classes are in `vda5050_core::client::adapter`.
 
 
-The integrator are also exposed to:
-
-- **Requests** describe what the AGV must do. They are read-only snapshots delivered to a callback (`NodeRequest`, `EdgeRequest`, `ActionRequest`, `LocalizationRequest`).
-- **Executions** are handles used to report back the outcome of a Request (`OrderExecution`, `ActionExecution`). They are the acknowledgement path.
-- **StateManager** is the AGV's view of itself. The integrator pushes position, velocity, battery and load into it; the Adapter turns that into a VDA5050 `state` message.
-
-The direction of the flow is therefore the inverse of the execution library: the Adapter calls the integrator, not the other way round.
-
-The adapter handles protocol concerns while the robot integration remains responsible for commanding hardware and reporting when work completes.
-
-### 1.1 Main APIs
-
-All adapter classes are in `vda5050_core::client::adapter`.
+| API               | Purpose                                               |
+| ----------------- | ----------------------------------------------------- |
+| `Adapter`         | Registers callbacks and controls the client lifecycle |
+| `NodeRequest`     | Describes the next node the AGV should reach          |
+| `EdgeRequest`     | Describes the optional edge leading to the node       |
+| `OrderExecution`  | Reports navigation success or failure                 |
+| `ActionRequest`   | Describes an action passed to the robot integration   |
+| `ActionExecution` | Reports action progress, success, or failure          |
+| `StateManager`    | Stores the AGV state published by the adapter         |
 
 
-| API               | Purpose                                                         |
-| ----------------- | --------------------------------------------------------------- |
-| `Adapter`         | Configures callbacks and controls the MQTT lifecycle            |
-| `NodeRequest`     | Describes the next node the robot must reach                    |
-| `EdgeRequest`     | Provides optional constraints for the edge leading to that node |
-| `OrderExecution`  | Reports navigation success or failure                           |
-| `ActionRequest`   | Describes an instant action dispatched to robot software        |
-| `ActionExecution` | Reports action status, success, or failure                      |
-| `StateManager`    | Updates the AGV state snapshot published by the adapter         |
+## 3. Create the Adapter
 
-
-## 2. Getting Started
-
-A minimal client requires an MQTT client, a `ProtocolAdapter`, and the callbacks the AGV is able to serve.
+Create an MQTT client and `ProtocolAdapter`, then use them to create the client adapter.
 
 ```cpp
-  using namespace vda5050_core::client::adapter;
+#include <memory>
 
-  // Transport. The Adapter does not own or manage the MQTT connection
-  // parameters, it only uses the client handed to the ProtocolAdapter
-  auto mqtt_client = vda5050_core::transport::create_default_client_unique(
-    "tcp://localhost:1883", "adapter_example");
+#include "vda5050_core/client/adapter/adapter.hpp"
+#include "vda5050_core/execution/protocol_adapter.hpp"
+#include "vda5050_core/transport/mqtt_client_interface.hpp"
 
-  // Protocol. Handles topic naming, headerId increments and timestamps
-  auto protocol_adapter = vda5050_core::execution::ProtocolAdapter::make(
-    std::move(mqtt_client), "uagv", "2.0.0", "Manufacturer", "S001");
+using vda5050_core::client::adapter::Adapter;
+using vda5050_core::execution::ProtocolAdapter;
 
-  auto adapter = Adapter::make(protocol_adapter);
+auto mqtt_client = vda5050_core::transport::create_default_client_unique(
+  "tcp://localhost:1883", "my-robot-client");
 
-  // Register the AGV capabilities before starting
-  adapter->on_navigate(...);
-  adapter->on_action(...);
-  adapter->on_localize(...);
+auto protocol_adapter = ProtocolAdapter::make(
+  std::move(mqtt_client),
+  "uagv",       // Interface name
+  "2.0.0",      // VDA5050 version
+  "MyCompany",  // Manufacturer
+  "AGV-001");   // Serial number
 
-  // Connects, publishes ONLINE, subscribes to order and instantActions
-  // topics, and starts the internal loops
-  adapter->start();
-
-  // ... application runs ...
-
-  // Stops the loops and publishes OFFLINE
-  adapter->stop();
+auto adapter = Adapter::make(protocol_adapter);
 ```
 
-`start()` must be called after the callbacks are registered. Requests that arrive for which no callback is registered are not dispatched.
+The MQTT client ID must be unique at the broker. The interface, manufacturer, and serial number determine the AGV topic identity, for example:
 
-## 3. Navigation
+```text
+uagv/v2/MyCompany/AGV-001/order
+uagv/v2/MyCompany/AGV-001/instantActions
+uagv/v2/MyCompany/AGV-001/state
+```
 
-`on_navigate` is invoked once per node of the order base, in sequence order. The `NodeRequest` describes the target; the `EdgeRequest` describes how to get there and is absent for the first node of an order.
+
+
+## 4. Handle Navigation
+
+Register the navigation callback before starting the adapter.
 
 ```cpp
-  adapter->on_navigate(
-    [state_manager](
-      NodeRequest node_request, std::optional<EdgeRequest> edge_request,
-      std::shared_ptr<OrderExecution> execution)
+#include <optional>
+#include <thread>
+
+#include "vda5050_core/client/adapter/edge_request.hpp"
+#include "vda5050_core/client/adapter/node_request.hpp"
+#include "vda5050_core/client/adapter/order_execution.hpp"
+
+using vda5050_core::client::adapter::EdgeRequest;
+using vda5050_core::client::adapter::NodeRequest;
+using vda5050_core::client::adapter::OrderExecution;
+
+auto state_manager = adapter->state_manager();
+
+adapter->on_navigate(
+  [state_manager](
+    NodeRequest node, std::optional<EdgeRequest> edge,
+    std::shared_ptr<OrderExecution> execution) {
+    // Transfer long-running work to a robot-owned worker.
+    std::thread([state_manager, node, edge, execution]() {
+      state_manager->set_driving(true);
+
+      try
+      {
+        // Replace this with the robot navigation API.
+        // navigate_to(node.node_position(), edge);
+
+        state_manager->set_driving(false);
+        execution->finished();
+      }
+      catch (const std::exception& error)
+      {
+        state_manager->set_driving(false);
+        execution->failed(error.what());
+      }
+    }).detach();
+  });
+```
+
+`NodeRequest` provides the node ID, sequence ID, optional position, and optional description. `EdgeRequest` provides optional trajectory, speed, height, rotation, and length constraints. An edge may not be available when there is no preceding edge for the node.
+
+The adapter waits for the current navigation request to complete before continuing. Every navigation request should report one final result:
+
+```
+execution->finished();
+```
+
+or:
+
+```
+execution->failed("Failure reason");
+```
+
+Call `finished()` only after the AGV physically reaches the requested node. Keep the execution handle alive while asynchronous navigation work is running.
+
+Production code should use a managed worker thread or task queue instead of an unmanaged detached thread. 
+
+## 5. Handle Actions
+
+Register an action callback before starting the adapter.
+
+```cpp
+#include "vda5050_core/client/adapter/action_execution.hpp"
+#include "vda5050_core/client/adapter/action_request.hpp"
+
+using vda5050_core::client::adapter::ActionExecution;
+using vda5050_core::client::adapter::ActionRequest;
+
+adapter->on_action(
+  [](ActionRequest request, std::shared_ptr<ActionExecution> execution) {
+    execution->running();
+
+    if (request.action_type() == "startCharging")
     {
-      // The callback must return promptly. Long running work belongs on the
-      // AGV's own thread
-      std::thread([node_request, execution, state_manager]()
-        {
-          state_manager->set_driving(true);
+      // Start charging through the robot API.
+      execution->finished("Charging started");
+      return;
+    }
 
-          // ... drive the AGV to node_request.node_position() ...
-
-          state_manager->set_driving(false);
-
-          // Report the outcome. Exactly one of finished() or failed() must
-          // be called for every request
-          execution->finished();
-        }).detach();
-    });
+    execution->failed("Unsupported action: " + request.action_type());
+  });
 ```
 
-The Adapter does not proceed to the next node until the current `OrderExecution` completes. If the AGV cannot reach the node, call `execution->failed("reason")`; the reason is reported to the master control.
+`ActionRequest` exposes the action ID, type, optional parameters, description, and optional order information. Use the `ActionExecution` handle to report the action status.
 
-`execution->okay()` returns false once the Adapter has deactivated the execution, for example because the order was cancelled or replaced by an order update. Long running navigation loops should poll it and abort early.
 
-## 4. Actions
+| Method                  | Effect                                             |
+| ----------------------- | -------------------------------------------------- |
+| `running()`             | Publishes `RUNNING`                                |
+| `paused(description)`   | Publishes `PAUSED` with an optional description    |
+| `finished()`            | Completes with `FINISHED`                          |
+| `finished(description)` | Completes with `FINISHED` and a result description |
+| `failed(reason)`        | Completes with `FAILED` and the reason             |
 
-`on_action` receives every action the AGV is expected to perform. Unlike navigation, actions report intermediate status, which the Adapter maps onto the VDA5050 `actionStates` array.
+
+Some standard instant actions may be handled internally by the adapter. Other supported actions are passed to the registered action callback.
+
+## 6. Report AGV State
+
+Use `StateManager` to update the current AGV state.
 
 ```cpp
-  adapter->on_action(
-    [](ActionRequest request, std::shared_ptr<ActionExecution> execution)
-    {
-      execution->initializing();
+#include "vda5050_core/types/battery_state.hpp"
+#include "vda5050_core/types/operating_mode.hpp"
 
-      // ... prepare ...
+state_manager->set_position(1.2, 3.4, 0.5, "map1");
+state_manager->set_driving(true);
+state_manager->set_operating_mode(
+  vda5050_core::types::OperatingMode::AUTOMATIC);
 
-      execution->running();
-
-      // ... perform request.action_type() with request.action_parameters() ...
-
-      execution->finished("optional result description");
-    });
+vda5050_core::types::BatteryState battery{};
+battery.battery_charge = 82.0;
+battery.charging = false;
+state_manager->set_battery_state(battery);
 ```
 
-Three instant action types are handled by the Adapter itself and are never forwarded to `on_action`:
+`StateManager` also supports information such as:
 
+- velocity
+- paused state
+- safety state
+- distance since the last node
+- loads
+- errors
+- information messages
+- action states
 
-| Action type        | Handled by                                      |
-| ------------------ | ----------------------------------------------- |
-| `stateRequest`     | Triggers an immediate state publish             |
-| `factsheetRequest` | Publishes the factsheet set via `set_factsheet` |
-| `initPosition`     | Forwarded to the `on_localize` callback         |
+Some order-related fields are managed by the adapter.
 
+These include:
 
+- `orderId`
+- `orderUpdateId`
+- `nodeStates`
+- `edgeStates`
+- `lastNodeId`
+- `lastNodeSequenceId`
 
+The robot integration should update the physical AGV state through `StateManager`. The state thread publishes at least every 30 seconds and after internal order or action events request an update. State setter methods update the next published snapshot; they do not all trigger an immediate publish by themselves.
 
-## 5. Localization
+For optional lists, an empty list and an unavailable list may have different meanings. 
 
-`initPosition` is separated from the general action path because it carries a pose rather than free-form parameters.
+For example:
+
+```
+state_manager->clear_loads();
+```
+
+can be used when the AGV is known to have no loads.
+
+A separate remove method may be used when the load information is not available. Check the current branch API for the exact supported methods.
+
+## 7. Configure the Factsheet
+
+A factsheet describes the AGV's capabilities and physical properties.
 
 ```cpp
-  adapter->on_localize(
-    [state_manager](
-      LocalizationRequest request, std::shared_ptr<ActionExecution> execution)
-    {
-      // ... seed the AGV localization with request.x(), request.y(),
-      // request.theta() on map request.map_id() ...
-
-      execution->finished();
-
-      state_manager->set_position(
-        request.x(), request.y(), request.theta(), request.map_id());
-    });
+vda5050_core::types::Factsheet factsheet{};
+// Populate the factsheet supported by this AGV.
+adapter->set_factsheet(factsheet);
 ```
 
-Until a position is reported, the AGV is not considered localized.
+Configure the factsheet before calling `start()` when the application needs to respond to `factsheetRequest`.
 
-## 6. Reporting State
+## 8. Start and Stop
 
-`StateManager` is the single place the AGV describes itself. It is thread-safe and may be written to from the AGV's own threads.
+Register the required callbacks and initialize the AGV state before starting the adapter.
 
 ```cpp
-  auto state_manager = adapter->state_manager();
+adapter->start();
 
-  state_manager->set_position(x, y, theta, "map_1");
-  state_manager->set_velocity(velocity);
-  state_manager->set_driving(true);
-  state_manager->set_battery_state(battery);
-  state_manager->set_operating_mode(vda5050_core::types::OperatingMode::AUTOMATIC);
-  state_manager->add_load(load);
-  state_manager->add_error(error);
+// Keep the application alive until shutdown.
+
+adapter->stop();
 ```
 
-Order-related fields (`orderId`, `nodeStates`, `edgeStates`, `lastNodeId`) are owned by the Adapter and cannot be written by the integrator.
+`start()` starts the client connection and internal processing:
 
-State is published when the Adapter observes a significant change, as required by the specification. To force a publish, for example after a battery reading, call `state_manager->mark_publish_requested()`.
+- connect to the MQTT broker
+- subscribe to order topics
+- subscribe to instant action topics
+- publish an `ONLINE` connection message
+- start the request dispatch loop
+- start the state publication loop
 
-## 7. Coordinate Transformation
+`stop()` shuts down the client:
 
-Master control works in world coordinates; the AGV may not. `Transformation` converts between the two and is registered per map.
+- stop the internal loops
+- join internal threads
+- unsubscribe from MQTT topics
+- publish an `OFFLINE` connection message
+- disconnect from the broker
 
-```cpp
-  // Calibrate from one known correspondence
-  auto tf = Transformation::calibrate(world_pose, agv_pose);
+The adapter may also call `stop()` when it is destroyed. Calling `stop()` explicitly is still recommended because it provides a clear and predictable shutdown order.
 
-  state_manager->set_transformation(tf, "map_1");
+## 9. CMake Integration
+
+Link the client target in the application.
+
+```
+find_package(vda5050_core REQUIRED)
+
+target_link_libraries(my_robot_adapter
+  PRIVATE
+    vda5050_core::client
+)
 ```
 
-Once registered, poses written through `set_position` for that map are converted before publishing, and incoming node positions are converted before reaching `on_navigate`.
+Add other targets only when they are used directly by the application.
 
-## 8. Factsheet
+For example:
 
-```cpp
-  vda5050_core::types::Factsheet factsheet;
-  // ... populate ...
-
-  adapter->set_factsheet(factsheet);
+```
+target_link_libraries(my_robot_adapter
+  PRIVATE
+    vda5050_core::client
+    vda5050_core::transport
+)
 ```
 
-The factsheet is published in response to a `factsheetRequest` instant action. If none is set, the request fails.
+The exact required targets depend on the exported dependencies of the current  
+branch.
 
-## 9. Threading and Lifecycle
+## 10. Build and Run the Example
 
-- `start()` spawns two internal threads: a dispatch loop that hands Requests to the callbacks, and a state loop that publishes state on request.
-- Callbacks are invoked from the dispatch thread. Blocking inside a callback blocks all further dispatch. Hand long running work to an AGV thread and report through the Execution handle.
-- `StateManager` and the Execution handles are safe to call from any thread.
-- A last-will message is registered so that an unexpected process exit is reported as a `CONNECTIONBROKEN` connection state.
-- `stop()` joins the internal threads and publishes `OFFLINE`. It is called automatically on destruction.
+Build the package with examples enabled.
+
+```
+colcon build \
+  --packages-select vda5050_core \
+  --cmake-args -DBUILD_EXAMPLES=ON
+```
+
+Start a local MQTT broker:
+
+```
+mosquitto -d
+```
+
+Source the workspace:
+
+```
+source install/setup.bash
+```
+
+Run the adapter example:
+
+```
+ros2 run vda5050_core adapter_example
+```
+
+The example demonstrates the basic client adapter flow.
+
+It may include:
+
+- MQTT connection
+- navigation callbacks
+- action callbacks
+- AGV state updates
+- simulated request completion
+
+See the current example source for the exact behavior:
+
+```
+examples/client/adapter_example.cpp
+```
 
 
 
-## 10. Complete Example
+## 11. Experimental Limitations
 
-See `examples/client/adapter_example.cpp` for a runnable client that simulates navigation, actions and localization against a local broker.
+The client adapter is still experimental.

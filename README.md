@@ -1,10 +1,12 @@
 # VDA5050 Library and Support Tools
 
-`vda5050_core` is a modern C++ library for developing applications that communicate using VDA5050 specification. It provides reusable components for both AGV-side and master-control implementations, including message types along with serialization and deserialization utilities, validation, execution utilities, MQTT communication and a high-level adapter API for robot integration.
+`vda5050_core` is a modern C++ library for developing applications that communicate using the VDA5050 specification. It provides reusable components for both AGV-side and master-control implementations, including message types along with serialization and deserialization utilities, validation, execution utilities, MQTT communication and a high-level adapter API for robot integration.
 
-The library is framework independent and can be integrated into standalone C++ applications, ROS 2 systems or existing robot software.
+The library is framework-independent and can be integrated into standalone C++ applications, ROS 2 systems or existing robot software.
 
 > **Project status:** This project is under 🚧 active development. APIs and behavior may change as VDA5050 support evolves.
+
+
 
 ## Features
 
@@ -16,6 +18,8 @@ The library is framework independent and can be integrated into standalone C++ a
 - **A high-level AGV client** that turns VDA5050 orders into navigation and action callbacks.
 - **Layout (LIF) support** for loading and validating facility graphs.
 - **Python bindings**, including a compatibility layer for migrating Open-RMF fleet adapters.
+
+
 
 ## Repository Structure
 
@@ -45,14 +49,14 @@ vda5050_core/
 
 | Document                                                      | Contents                                         |
 | ------------------------------------------------------------- | ------------------------------------------------ |
-| [docs/design.md](vda5050_core/docs/design.md)              | Architecture and design rationale                |
-| [docs/execution.md](vda5050_core/docs/execution.md)         | Building custom logic on the execution framework |
-| [docs/client-adapter.md](vda5050_core/docs/client-adapter.md)             | Integrating an AGV using the client adapter      |
-| [docs/types.md](vda5050_core/docs/types.md) | Message types and JSON conversion                |
-| [docs/rmf-migration.md](vda5050_core/docs/rmf-migration.md) | Porting an Open-RMF fleet adapter                |
+| [docs/design.md](vda5050_core/docs/design.md)                 | Architecture and design rationale                |
+| [docs/execution.md](vda5050_core/docs/execution.md)           | Building custom logic on the execution framework |
+| [docs/client-adapter.md](vda5050_core/docs/client-adapter.md) | Integrating an AGV using the client adapter      |
+| [docs/types.md](vda5050_core/docs/types.md)                   | Message types and JSON conversion                |
+| [docs/rmf-migration.md](vda5050_core/docs/rmf-migration.md)   | Porting an Open-RMF fleet adapter                |
 
 
-Start with `adapter.md` to integrate a robot; start with `design.md` to understand or extend the library.
+Start with `client-adapter.md` to integrate a robot; start with `design.md` to understand or extend the library.
 
 ## Requirements
 
@@ -100,7 +104,9 @@ colcon build --cmake-args -DENABLE_ROS2=ON
 
 ## Quick Start
 
-An AGV client that answers orders from a master control:
+The following example shows the basic setup for an AGV-side client.
+
+It creates the MQTT transport and the VDA5050 client adapter, then registers a navigation callback. In a real application, the callback should pass the request to the robot's navigation system.
 
 ```cpp
 #include "vda5050_core/client/adapter/adapter.hpp"
@@ -120,18 +126,22 @@ int main()
   auto adapter = client::adapter::Adapter::make(protocol_adapter);
 
   adapter->on_navigate(
-    [](auto node_request, auto edge_request, auto execution) {
-      // Drive to node_request.node_position(), then:
-      execution->finished();
+    [](auto node_request, auto edge_request, auto execution) 
+    {
+      // Pass the request to the robot navigation system.
+      //
+      // This example immediately reports success. A real integration // should report completion only after the robot reaches the node. execution->finished();
     });
 
   adapter->start();
 
-  // ... run ...
+  // Run the application.
 
   adapter->stop();
 }
 ```
+
+This example only shows the main client setup. For a complete integration with navigation, actions, localization, and state updates, see `docs/client-adapter.md` and `examples/client/adapter_example.cpp`.
 
 CMake integration:
 
