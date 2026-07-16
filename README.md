@@ -56,7 +56,7 @@ vda5050_core/
 | [docs/rmf-migration.md](vda5050_core/docs/rmf-migration.md)   | Porting an Open-RMF fleet adapter                |
 
 
-Start with `client-adapter.md` to integrate a robot; start with `design.md` to understand or extend the library.
+To connect an existing robot SDK, API, or ROS 2 navigation system to VDA5050, start with `client-adapter.md`; start with `design.md` to understand or extend the library.
 
 ## Requirements
 

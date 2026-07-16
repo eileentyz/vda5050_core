@@ -1,32 +1,10 @@
 # Client Adapter
 
-This guide explains how to connect robot software to a VDA5050 master control using the client adapter in `vda5050_core::client::adapter`.
+This guide explains how to connect an existing robot to a VDA5050 master control using the C++ client adapter provided by `vda5050_core::client::adapter`.
 
-## 1. Overview
+The client adapter handles VDA5050 communication and order processing. It does not directly control a robot.
 
-The client adapter provides a high-level interface for building an AGV-side VDA5050 client.
-
-It handles common VDA5050 functions such as:
-
-- MQTT communication
-- VDA5050 topic names
-- JSON conversion
-- order processing
-- navigation requests
-- instant actions
-- connection messages
-- state messages
-- factsheet messages
-
-The adapter handles the VDA5050 communication flow.
-
-The robot integration remains responsible for:
-
-- controlling the robot hardware
-- navigating to requested positions
-- performing robot-specific actions
-- reading robot state
-- reporting whether a request finished or failed
+To use it with an existing robot, create one C++ integration application that connects the client adapter to the robot's SDK, API, ROS 2 interface, or control software.
 
 ```mermaid
 flowchart LR
@@ -42,289 +20,62 @@ flowchart LR
 
 
 
-## 2. Main APIs
+### Table of Contents
 
-All client adapter classes are in `vda5050_core::client::adapter`.
-
-
-| API               | Purpose                                               |
-| ----------------- | ----------------------------------------------------- |
-| `Adapter`         | Registers callbacks and controls the client lifecycle |
-| `NodeRequest`     | Describes the next node the AGV should reach          |
-| `EdgeRequest`     | Describes the optional edge leading to the node       |
-| `OrderExecution`  | Reports navigation success or failure                 |
-| `ActionRequest`   | Describes an action passed to the robot integration   |
-| `ActionExecution` | Reports action progress, success, or failure          |
-| `StateManager`    | Stores the AGV state published by the adapter         |
-
-
-## 3. Create the Adapter
-
-Create an MQTT client and `ProtocolAdapter`, then use them to create the client adapter.
-
-```cpp
-#include <memory>
-
-#include "vda5050_core/client/adapter/adapter.hpp"
-#include "vda5050_core/execution/protocol_adapter.hpp"
-#include "vda5050_core/transport/mqtt_client_interface.hpp"
-
-using vda5050_core::client::adapter::Adapter;
-using vda5050_core::execution::ProtocolAdapter;
-
-auto mqtt_client = vda5050_core::transport::create_default_client_unique(
-  "tcp://localhost:1883", "my-robot-client");
-
-auto protocol_adapter = ProtocolAdapter::make(
-  std::move(mqtt_client),
-  "uagv",       // Interface name
-  "2.0.0",      // VDA5050 version
-  "MyCompany",  // Manufacturer
-  "AGV-001");   // Serial number
-
-auto adapter = Adapter::make(protocol_adapter);
-```
-
-The MQTT client ID must be unique at the broker. The interface, manufacturer, and serial number determine the AGV topic identity, for example:
-
-```text
-uagv/v2/MyCompany/AGV-001/order
-uagv/v2/MyCompany/AGV-001/instantActions
-uagv/v2/MyCompany/AGV-001/state
-```
+- [Start from the Existing Example](#1-start-from-the-existing-example)
+- [Build and Run the Packaged Example](#2-build-and-run-the-packaged-example)
+- [Create Your Own Robot Integration](#3-create-your-own-robot-integration)
+  - [Configure the Adapter](#31-configure-the-adapter)
+  - [Connect Navigation](#32-connect-navigation)
+  - [Report Navigation Completion](#33-report-navigation-completion)
+  - [Connect Actions](#34-connect-actions)
+  - [Connect Localization](#35-connect-localization)
+  - [Report Robot State](#36-report-robot-state)
+  - [Coordinate Frames](#37-coordinate-frames)
+  - [Configure the Factsheet](#38-configure-the-factsheet)
+  - [Start and Stop](#39-start-and-stop)
+  - [CMake Integration](#310-cmake-integration)
+- [Build and Test Your Robot Integration](#4-build-and-test-your-robot-integration)
+- [Integration Checklist](#5-integration-checklist)
 
 
 
-## 4. Handle Navigation
+## 1. Start from the Existing Example
 
-Register the navigation callback before starting the adapter.
-
-```cpp
-#include <optional>
-#include <thread>
-
-#include "vda5050_core/client/adapter/edge_request.hpp"
-#include "vda5050_core/client/adapter/node_request.hpp"
-#include "vda5050_core/client/adapter/order_execution.hpp"
-
-using vda5050_core::client::adapter::EdgeRequest;
-using vda5050_core::client::adapter::NodeRequest;
-using vda5050_core::client::adapter::OrderExecution;
-
-auto state_manager = adapter->state_manager();
-
-adapter->on_navigate(
-  [state_manager](
-    NodeRequest node, std::optional<EdgeRequest> edge,
-    std::shared_ptr<OrderExecution> execution) {
-    // Transfer long-running work to a robot-owned worker.
-    std::thread([state_manager, node, edge, execution]() {
-      state_manager->set_driving(true);
-
-      try
-      {
-        // Replace this with the robot navigation API.
-        // navigate_to(node.node_position(), edge);
-
-        state_manager->set_driving(false);
-        execution->finished();
-      }
-      catch (const std::exception& error)
-      {
-        state_manager->set_driving(false);
-        execution->failed(error.what());
-      }
-    }).detach();
-  });
-```
-
-`NodeRequest` provides the node ID, sequence ID, optional position, and optional description. `EdgeRequest` provides optional trajectory, speed, height, rotation, and length constraints. An edge may not be available when there is no preceding edge for the node.
-
-The adapter waits for the current navigation request to complete before continuing. Every navigation request should report one final result:
+Use the following file as the starting template:
 
 ```
+examples/client/adapter_example.cpp
+```
+
+The example is one complete C++ application. The sections in this guide explain how to modify different parts of that application; they are not separate programs.
+
+The example demonstrates:
+
+- connecting to an MQTT broker
+- creating the client adapter
+- receiving navigation requests
+- receiving action requests
+- receiving localization requests
+- updating robot state
+- starting and stopping the adapter
+
+The example does not control a real robot. It simulates robot behaviour using delays.
+
+For example:
+
+```
+std::this_thread::sleep_for(std::chrono::seconds(2));
 execution->finished();
 ```
 
-or:
+This waits for two seconds, pretends that the robot reached the requested node, and reports successful completion.
 
-```
-execution->failed("Failure reason");
-```
+To integrate a real robot, copy the example and replace the simulated behaviour with the robot's actual interface.
 
-Call `finished()` only after the AGV physically reaches the requested node. Keep the execution handle alive while asynchronous navigation work is running.
+## 2. Build and Run the Packaged Example
 
-Production code should use a managed worker thread or task queue instead of an unmanaged detached thread. 
-
-## 5. Handle Actions
-
-Register an action callback before starting the adapter.
-
-```cpp
-#include "vda5050_core/client/adapter/action_execution.hpp"
-#include "vda5050_core/client/adapter/action_request.hpp"
-
-using vda5050_core::client::adapter::ActionExecution;
-using vda5050_core::client::adapter::ActionRequest;
-
-adapter->on_action(
-  [](ActionRequest request, std::shared_ptr<ActionExecution> execution) {
-    execution->running();
-
-    if (request.action_type() == "startCharging")
-    {
-      // Start charging through the robot API.
-      execution->finished("Charging started");
-      return;
-    }
-
-    execution->failed("Unsupported action: " + request.action_type());
-  });
-```
-
-`ActionRequest` exposes the action ID, type, optional parameters, description, and optional order information. Use the `ActionExecution` handle to report the action status.
-
-
-| Method                  | Effect                                             |
-| ----------------------- | -------------------------------------------------- |
-| `running()`             | Publishes `RUNNING`                                |
-| `paused(description)`   | Publishes `PAUSED` with an optional description    |
-| `finished()`            | Completes with `FINISHED`                          |
-| `finished(description)` | Completes with `FINISHED` and a result description |
-| `failed(reason)`        | Completes with `FAILED` and the reason             |
-
-
-Some standard instant actions may be handled internally by the adapter. Other supported actions are passed to the registered action callback.
-
-## 6. Report AGV State
-
-Use `StateManager` to update the current AGV state.
-
-```cpp
-#include "vda5050_core/types/battery_state.hpp"
-#include "vda5050_core/types/operating_mode.hpp"
-
-state_manager->set_position(1.2, 3.4, 0.5, "map1");
-state_manager->set_driving(true);
-state_manager->set_operating_mode(
-  vda5050_core::types::OperatingMode::AUTOMATIC);
-
-vda5050_core::types::BatteryState battery{};
-battery.battery_charge = 82.0;
-battery.charging = false;
-state_manager->set_battery_state(battery);
-```
-
-`StateManager` also supports information such as:
-
-- velocity
-- paused state
-- safety state
-- distance since the last node
-- loads
-- errors
-- information messages
-- action states
-
-Some order-related fields are managed by the adapter.
-
-These include:
-
-- `orderId`
-- `orderUpdateId`
-- `nodeStates`
-- `edgeStates`
-- `lastNodeId`
-- `lastNodeSequenceId`
-
-The robot integration should update the physical AGV state through `StateManager`. The state thread publishes at least every 30 seconds and after internal order or action events request an update. State setter methods update the next published snapshot; they do not all trigger an immediate publish by themselves.
-
-For optional lists, an empty list and an unavailable list may have different meanings. 
-
-For example:
-
-```
-state_manager->clear_loads();
-```
-
-can be used when the AGV is known to have no loads.
-
-A separate remove method may be used when the load information is not available. Check the current branch API for the exact supported methods.
-
-## 7. Configure the Factsheet
-
-A factsheet describes the AGV's capabilities and physical properties.
-
-```cpp
-vda5050_core::types::Factsheet factsheet{};
-// Populate the factsheet supported by this AGV.
-adapter->set_factsheet(factsheet);
-```
-
-Configure the factsheet before calling `start()` when the application needs to respond to `factsheetRequest`.
-
-## 8. Start and Stop
-
-Register the required callbacks and initialize the AGV state before starting the adapter.
-
-```cpp
-adapter->start();
-
-// Keep the application alive until shutdown.
-
-adapter->stop();
-```
-
-`start()` starts the client connection and internal processing:
-
-- connect to the MQTT broker
-- subscribe to order topics
-- subscribe to instant action topics
-- publish an `ONLINE` connection message
-- start the request dispatch loop
-- start the state publication loop
-
-`stop()` shuts down the client:
-
-- stop the internal loops
-- join internal threads
-- unsubscribe from MQTT topics
-- publish an `OFFLINE` connection message
-- disconnect from the broker
-
-The adapter may also call `stop()` when it is destroyed. Calling `stop()` explicitly is still recommended because it provides a clear and predictable shutdown order.
-
-## 9. CMake Integration
-
-Link the client target in the application.
-
-```
-find_package(vda5050_core REQUIRED)
-
-target_link_libraries(my_robot_adapter
-  PRIVATE
-    vda5050_core::client
-)
-```
-
-Add other targets only when they are used directly by the application.
-
-For example:
-
-```
-target_link_libraries(my_robot_adapter
-  PRIVATE
-    vda5050_core::client
-    vda5050_core::transport
-)
-```
-
-The exact required targets depend on the exported dependencies of the current  
-branch.
-
-## 10. Build and Run the Example
-
-Build the package with examples enabled.
+Build the package with examples enabled:
 
 ```
 colcon build \
@@ -332,7 +83,7 @@ colcon build \
   --cmake-args -DBUILD_EXAMPLES=ON
 ```
 
-Start a local MQTT broker:
+Start an MQTT broker:
 
 ```
 mosquitto -d
@@ -344,30 +95,540 @@ Source the workspace:
 source install/setup.bash
 ```
 
-Run the adapter example:
+Run the packaged example:
 
 ```
 ros2 run vda5050_core adapter_example
 ```
 
-The example demonstrates the basic client adapter flow.
+Run this example first to confirm that the MQTT connection and client-adapter flow work before connecting a physical robot.
 
-It may include:
+## 3. Create Your Own Robot Integration
 
-- MQTT connection
-- navigation callbacks
-- action callbacks
-- AGV state updates
-- simulated request completion
+After the packaged example works:
 
-See the current example source for the exact behavior:
+1. Copy `adapter_example.cpp` into the `src/` directory of an existing robot integration package and rename it.
+  For example:
+  ```
+  my_robot_integration/
+    package.xml
+    CMakeLists.txt
+    src/
+      my_robot_vda5050_adapter.cpp
+  ```
+  If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.
+2. Update the MQTT broker and robot identity.
+3. Replace simulated navigation with the robot's navigation command.
+4. Replace simulated actions with the robot's supported actions.
+5. Connect localization when required.
+6. Read real robot telemetry and update `StateManager`.
+7. Report navigation and action completion or failure.
+8. Build and run the new robot-specific application.
+
+A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide.
+
+You do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library. From Step3 on ward, can refer to this guide below:
+
+### 3.1 Configure the Adapter
+
+The first part of the integration application creates the MQTT connection and identifies the robot.
 
 ```
-examples/client/adapter_example.cpp
+auto mqtt_client =
+  vda5050_core::transport::create_default_client_unique(
+    "tcp://localhost:1883",
+    "my-robot-client");
+
+auto protocol_adapter = ProtocolAdapter::make(
+  std::move(mqtt_client),
+  "uagv",
+  "2.0.0",
+  "MyCompany",
+  "AGV-001");
+
+auto adapter = Adapter::make(protocol_adapter);
+auto state_manager = adapter->state_manager();
+```
+
+Replace the example values with the configuration used by the robot integration.
+
+
+| Value                  | Meaning                |
+| ---------------------- | ---------------------- |
+| `tcp://localhost:1883` | MQTT broker address    |
+| `my-robot-client`      | Unique MQTT client ID  |
+| `uagv`                 | VDA5050 interface name |
+| `2.0.0`                | VDA5050 version        |
+| `MyCompany`            | Robot manufacturer     |
+| `AGV-001`              | Robot serial number    |
+
+
+The MQTT client ID must be unique at the broker.
+
+The interface name, VDA5050 version, manufacturer, and serial number determine the robot's VDA5050 topic identity.
+
+For example:
+
+```
+uagv/v2/MyCompany/AGV-001/order
+uagv/v2/MyCompany/AGV-001/instantActions
+uagv/v2/MyCompany/AGV-001/state
+uagv/v2/MyCompany/AGV-001/connection
 ```
 
 
 
-## 11. Experimental Limitations
+### 3.2 Connect Navigation
 
-The client adapter is still experimental.
+The client adapter calls `on_navigate()` when a VDA5050 order asks the robot to move to the next node.
+
+The callback receives:
+
+- a `NodeRequest`
+- an optional `EdgeRequest`
+- an `OrderExecution` handle
+
+The packaged example simulates navigation by waiting for two seconds and then reporting success.
+
+A real integration should instead send the requested destination to the robot.
+
+```
+std::shared_ptr<OrderExecution> active_navigation;
+
+adapter->on_navigate(
+  [&](NodeRequest node_request,
+      std::optional<EdgeRequest> edge_request,
+      std::shared_ptr<OrderExecution> execution)
+  {
+    const auto position = node_request.node_position();
+
+    if (!position.has_value())
+    {
+      execution->failed("Requested node has no position");
+      return;
+    }
+
+    // Replace this with the robot's actual navigation interface.
+    robot_api.navigate_to(
+      position.value().x,
+      position.value().y,
+      position.value().theta.value_or(0.0),
+      position.value().map_id);
+
+    active_navigation = execution;
+    state_manager->set_driving(true);
+  });
+```
+
+`robot_api.navigate_to(...)` is only a placeholder.
+
+Replace it with the actual SDK, API, ROS 2 topic, service, or action used by the robot.
+
+The optional `EdgeRequest` may contain information such as:
+
+- trajectory
+- speed constraints
+- edge length
+- rotation constraints
+
+Use this information only when it is required by the robot integration.
+
+### 3.3 Report Navigation Completion
+
+Sending a navigation command does not mean that the robot has already reached the destination.
+
+Do not call `finished()` immediately after sending the command.
+
+Keep the `OrderExecution` handle while navigation is active:
+
+```
+active_navigation = execution;
+```
+
+Then monitor the robot's navigation status:
+
+```
+void update_navigation_status()
+{
+  if (!active_navigation)
+  {
+    return;
+  }
+
+  if (robot_api.navigation_completed())
+  {
+    state_manager->set_driving(false);
+
+    active_navigation->finished();
+    active_navigation.reset();
+    return;
+  }
+
+  if (robot_api.navigation_failed())
+  {
+    state_manager->set_driving(false);
+
+    active_navigation->failed(
+      "Robot could not reach the requested node");
+
+    active_navigation.reset();
+  }
+}
+```
+
+Replace:
+
+```
+robot_api.navigation_completed()
+robot_api.navigation_failed()
+```
+
+with the actual status interface provided by the robot.
+
+Every navigation request should end with one final result:
+
+```
+execution->finished();
+```
+
+or:
+
+```
+execution->failed("Failure reason");
+```
+
+Call `finished()` only after the robot physically reaches the requested node.
+
+### 3.4 Connect Actions
+
+The client adapter calls `on_action()` when the robot receives an action request.
+
+The packaged example simulates action completion using a one-second delay.
+
+A real integration should map supported VDA5050 action types to the robot's actual action commands.
+
+```
+std::shared_ptr<ActionExecution> active_action;
+
+adapter->on_action(
+  [&](ActionRequest request,
+      std::shared_ptr<ActionExecution> execution)
+  {
+    if (request.action_type() == "startCharging")
+    {
+      execution->running();
+
+      // Replace this with the robot's actual action command.
+      robot_api.start_charging();
+
+      active_action = execution;
+      return;
+    }
+
+    execution->failed(
+      "Unsupported action: " + request.action_type());
+  });
+```
+
+Only implement actions supported by the robot.
+
+Use `ActionExecution` to report the action state.
+
+
+|                         |                                              |
+| ----------------------- | -------------------------------------------- |
+| Method                  | Effect                                       |
+| `running()`             | Reports `RUNNING`                            |
+| `paused(description)`   | Reports `PAUSED`                             |
+| `finished()`            | Reports `FINISHED`                           |
+| `finished(description)` | Reports `FINISHED` with a result description |
+| `failed(reason)`        | Reports `FAILED` with a reason               |
+
+
+For a long-running action, keep the execution handle and report the result later:
+
+```
+void update_action_status()
+{
+  if (!active_action)
+  {
+    return;
+  }
+
+  if (robot_api.action_completed())
+  {
+    active_action->finished();
+    active_action.reset();
+    return;
+  }
+
+  if (robot_api.action_failed())
+  {
+    active_action->failed("Robot action failed");
+    active_action.reset();
+  }
+}
+```
+
+Some standard instant actions may be handled internally by the adapter. Other supported actions are passed to the registered callback.
+
+### 3.5 Connect Localization
+
+The client adapter calls `on_localize()` when the master control requests the robot to use a specific pose.
+
+```
+adapter->on_localize(
+  [&](LocalizationRequest request,
+      std::shared_ptr<ActionExecution> execution)
+  {
+    // Replace this with the robot's actual localization interface.
+    robot_api.set_initial_pose(
+      request.x(),
+      request.y(),
+      request.theta(),
+      request.map_id());
+
+    state_manager->set_position(
+      request.x(),
+      request.y(),
+      request.theta(),
+      request.map_id());
+
+    execution->finished();
+  });
+```
+
+The packaged example immediately accepts the localization request.
+
+For a real robot:
+
+1. send the requested pose to the robot,
+2. wait for the robot to accept or complete localization, and
+3. report success or failure.
+
+If the robot does not support external localization, handle the request according to the application's requirements.
+
+### 3.6 Report Robot State
+
+The client adapter publishes the AGV state using information stored in `StateManager`.
+
+The robot integration should update `StateManager` using real telemetry from the robot.
+
+For example:
+
+```
+const auto pose = robot_api.current_pose();
+
+state_manager->set_position(
+  pose.x,
+  pose.y,
+  pose.theta,
+  pose.map_id);
+
+state_manager->set_driving(
+  robot_api.is_moving());
+```
+
+Update the operating mode:
+
+```
+state_manager->set_operating_mode(
+  vda5050_core::types::OperatingMode::AUTOMATIC);
+```
+
+Update the battery state:
+
+```
+vda5050_core::types::BatteryState battery{};
+
+battery.battery_charge =
+  robot_api.battery_percentage();
+
+battery.charging =
+  robot_api.is_charging();
+
+state_manager->set_battery_state(battery);
+```
+
+Replace `robot_api` with the actual telemetry interface used by the robot.
+
+`StateManager` may also support:
+
+- velocity
+- paused state
+- safety state
+- operating mode
+- distance since the last node
+- loads
+- errors
+- information messages
+- action states
+
+Some order-related fields are managed internally by the adapter.
+
+These may include:
+
+- `orderId`
+- `orderUpdateId`
+- `nodeStates`
+- `edgeStates`
+- `lastNodeId`
+- `lastNodeSequenceId`
+
+The robot integration should update only the physical state and telemetry that it owns.
+
+State setter methods update the state used by the adapter's publication flow. They do not necessarily publish a message immediately after every setter call.
+
+### 3.7 Coordinate Frames
+
+The robot's coordinate frame must match the layout used by the VDA5050 master control.
+
+The following values must be consistent:
+
+- map ID
+- x-coordinate
+- y-coordinate
+- orientation
+- distance units
+- angle units
+
+If the robot uses a different coordinate frame, convert the requested destination before sending it to the robot.
+
+Apply the same transformation before updating the robot position through `StateManager`.
+
+Keep coordinate transformations in one place to avoid inconsistent navigation and state data.
+
+### 3.8  Configure the Factsheet
+
+A factsheet describes the robot's capabilities and physical properties.
+
+```
+vda5050_core::types::Factsheet factsheet{};
+
+// Populate the factsheet fields supported by the robot.
+
+adapter->set_factsheet(factsheet);
+```
+
+The factsheet should describe the actual robot being integrated, including:
+
+- supported actions
+- physical dimensions
+- limits
+- protocol features
+
+Configure the factsheet before calling `start()` when the application needs to respond to `factsheetRequest`.
+
+### 3.9 Start and Stop
+
+Register all callbacks before starting the adapter:
+
+```
+adapter->on_navigate(...);
+adapter->on_action(...);
+adapter->on_localize(...);
+```
+
+Then start the adapter:
+
+```
+adapter->start();
+```
+
+Keep the application running while the adapter is active:
+
+```
+while (running)
+{
+  update_robot_state();
+  update_navigation_status();
+  update_action_status();
+
+  std::this_thread::sleep_for(
+    std::chrono::milliseconds(100));
+}
+```
+
+Stop the adapter during shutdown:
+
+```
+adapter->stop();
+```
+
+Calling `stop()` explicitly is recommended because it provides a clear shutdown order.
+
+### 3.10 CMake Integration
+
+Find the package:
+
+```
+find_package(vda5050_core REQUIRED)
+```
+
+Link the client adapter:
+
+```
+target_link_libraries(my_robot_adapter
+  PRIVATE
+    vda5050_core::client
+)
+```
+
+If the application directly creates the MQTT transport, it may also require:
+
+```
+target_link_libraries(my_robot_adapter
+  PRIVATE
+    vda5050_core::client
+    vda5050_core::transport
+)
+```
+
+The exact required targets depend on the exported dependencies of the current branch.
+
+## 4. Build and Test Your Robot Integration
+
+The examples in this section use:
+
+package name: `my_robot_integration`  
+executable name: `my_robot_vda5050_adapter`  
+source file: `src/my_robot_vda5050_adapter.cpp`
+
+Replace these names with those used by the actual project.
+
+Build the robot integration package:
+
+```
+colcon build --packages-select my_robot_integration
+```
+
+Source the workspace:
+
+```
+source install/setup.bash
+```
+
+Start the MQTT broker if required:
+
+```
+mosquitto -d
+```
+
+Run the robot integration application:
+
+```
+ros2 run my_robot_integration my_robot_vda5050_adapter
+```
+
+Use `ros2 run` only when the application is built and installed as a ROS 2 executable. Otherwise, run the executable using the method required by the project.
+
+During testing, confirm that:
+
+1. the client adapter connects to the MQTT broker,
+2. navigation requests reach the robot interface,
+3. navigation is reported as finished only after the robot reaches the destination,
+4. navigation failures are reported correctly,
+5. supported actions are executed and reported correctly,
+6. real robot telemetry is updated through `StateManager`, and
+7. the client adapter shuts down cleanly.
+
