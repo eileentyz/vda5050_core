@@ -116,14 +116,14 @@ After the packaged example works:
     src/
       my_robot_vda5050_adapter.cpp
   ```
-  If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.
-2. Update the MQTT broker and robot identity.
-3. Replace simulated navigation with the robot's navigation command.
-4. Replace simulated actions with the robot's supported actions.
-5. Connect localization when required.
-6. Read real robot telemetry and update `StateManager`.
-7. Report navigation and action completion or failure.
-8. Build and run the new robot-specific application.
+  If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.   
+2. Update the MQTT broker and robot identity.  
+3. Replace simulated navigation with the robot's navigation command.  
+4. Replace simulated actions with the robot's supported actions.  
+5. Connect localization when required.  
+6. Read real robot telemetry and update `StateManager`.  
+7. Report navigation and action completion or failure.  
+8. Build and run the new robot-specific application.  
 
 A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide. You also do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library.
 
@@ -629,4 +629,24 @@ During testing, confirm that:
 5. supported actions are executed and reported correctly,
 6. real robot telemetry is updated through `StateManager`, and
 7. the client adapter shuts down cleanly.
+
+## 5. Integration Checklist
+
+Before testing a physical robot, confirm that:
+
+- the MQTT broker is reachable
+- the MQTT client ID is unique
+- the manufacturer and serial number are correct
+- the VDA5050 version matches the master control
+- navigation requests reach the robot
+- navigation completion is reported only after arrival
+- navigation failures are reported
+- supported actions are mapped to robot commands
+- unsupported actions are rejected
+- localization requests are handled correctly
+- robot positions use the correct coordinate frame
+- battery and operating mode are updated
+- the factsheet matches the robot's capabilities
+- the client adapter starts and stops cleanly
+- MQTT disconnection and reconnection have been tested
 
