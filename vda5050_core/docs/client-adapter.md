@@ -127,15 +127,15 @@ my_robot_integration/
     └── my_robot_vda5050_adapter.cpp
 ```
 
-If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.   
+If no robot integration package exists yet, create a new C++ or ROS 2 package that depends on `vda5050_core`.    
 
-1. Update the MQTT broker and robot identity.
-2. Replace simulated navigation with the robot's navigation command.
-3. Replace simulated actions with the robot's supported actions.
-4. Connect localization when required.
-5. Read real robot telemetry and update `StateManager`.
-6. Report navigation and action completion or failure.
-7. Build and run the new robot-specific application.
+1. Update the MQTT broker and robot identity.   
+2. Replace simulated navigation with the robot's navigation command.    
+3. Replace simulated actions with the robot's supported actions.    
+4. Connect localization when required.    
+5. Read real robot telemetry and update `StateManager`.    
+6. Report navigation and action completion or failure.    
+7. Build and run the new robot-specific application.    
 
 A simple integration can use one C++ source file. You do not need to create a separate program for every section in this guide. You also do not need to modify `vda5050_core`. The new application uses `vda5050_core` as a library.
 
