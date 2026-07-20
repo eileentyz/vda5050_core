@@ -18,10 +18,10 @@ Developers can generally:
 2. [Architecture Change](#2-architecture-change)
 3. [Example Files](#3-example-files)
 4. [Configure the Fleet and Robot](#4-configure-the-fleet-and-robot)
-  4.1 [Fleet settings](#41-fleet-settings)
-  4.2 [Robot identity](#42-robot-identity)
-  4.3 [Initial robot state](#43-initial-robot-state)
-  4.4 [MQTT connection](#44-mqtt-connection)
+  4.1 [Fleet settings](#41-fleet-settings)  
+  4.2 [Robot identity](#42-robot-identity)  
+  4.3 [Initial robot state](#43-initial-robot-state)  
+  4.4 [MQTT connection](#44-mqtt-connection)  
   4.5 [Print-only settings](#45-print-only-settings)
 5. [How](#5-how-fleet_adapterpy-works) `fleet_adapter.py` [Works](#5-how-fleet_adapterpy-works)
 6. [Create the Adapter and Fleet](#6-create-the-adapter-and-fleet)
@@ -484,6 +484,8 @@ The method should return:
 - `True` when communication is available;
 - `False` when the robot or fleet manager cannot be reached.
 
+
+
 ## 12. Handle Localization
 
 The fleet adapter forwards an `initPosition` request through:
@@ -853,6 +855,8 @@ A real robot integration must provide:
 - current pose `[x, y, theta]`;
 - battery state of charge.
 
+
+
 ## 18. Return the Robot Position
 
 Implement:
@@ -909,6 +913,8 @@ A robot battery value of `82%` should be returned as:
 ```
 0.82
 ```
+
+
 
 ## 20. Return the Current Map
 
@@ -1244,6 +1250,8 @@ Confirm that the Python module imports:
 ```
 python3 -c "import vda5050_core_python"
 ```
+
+
 
 ## 28. Run the Example
 
