@@ -17,7 +17,7 @@ Developers can generally:
 1. [Scope](#1-scope)
 2. [Architecture Change](#2-architecture-change)
 3. [Example Files](#3-example-files)
-4. [Configure the Fleet and Robot](#4-configure-the-fleet-and-robot)
+4. [Configure the Fleet and Robot](#4-configure-the-fleet-and-robot)  
   4.1 [Fleet settings](#41-fleet-settings)  
   4.2 [Robot identity](#42-robot-identity)  
   4.3 [Initial robot state](#43-initial-robot-state)  

@@ -24,7 +24,7 @@ flowchart LR
 
 1. [Start from the Existing Example](#1-start-from-the-existing-example)
 2. [Build and Run the Packaged Example](#2-build-and-run-the-packaged-example)
-3. [Create Your Own Robot Integration](#3-create-your-own-robot-integration)
+3. [Create Your Own Robot Integration](#3-create-your-own-robot-integration)  
   3.1 [Change the MQTT Configuration and Robot Identity](#31-change-the-mqtt-configuration-and-robot-identity)  
   3.2 [Replace Simulated Navigation](#32-replace-simulated-navigation)  
   3.3 [Report Navigation Completion](#33-report-navigation-completion)  
