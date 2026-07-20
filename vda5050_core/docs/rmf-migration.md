@@ -1,12 +1,57 @@
 # Migrating an Open-RMF Robot Integration using Python Bindings
 
-This guide explains how to reuse existing robot-specific Python API while replacing Open-RMF fleet adapter layer with the VDA5050 client adapter provided by `vda5050_core_python`.
+This guide explains how to adapt the provided Python VDA5050 fleet adapter example for a real robot. 
 
-The Python bindings are exposed through:
+The example reuses an existing robot-specific Python interface while replacing the Open-RMF fleet-adapter layer with the VDA5050 client adapter provided by `vda5050_core_python`.
 
-```
-from vda5050_core_python import rmf_migration
-```
+Developers can generally:
+
+- keep the generic adapter logic in `fleet_adapter.py`
+- update the fleet, MQTT and robot information in `config.yaml`
+- replace the print-only methods in `RobotClientAPI.py` with calls to the real robot API, SDK or ROS 2 interface.
+
+
+
+## Table of Contents
+
+1. [Scope](#1-scope)
+2. [Architecture Change](#2-architecture-change)
+3. [Example Files](#3-example-files)
+4. [Configure the Fleet and Robot](#4-configure-the-fleet-and-robot)
+  - [Fleet settings](#41-fleet-settings)
+  - [Robot identity](#42-robot-identity)
+  - [Initial robot state](#43-initial-robot-state)
+  - [MQTT connection](#44-mqtt-connection)
+  - [Print-only settings](#45-print-only-settings)
+5. [How](#5-how-fleet_adapterpy-works) `fleet_adapter.py` [Works](#5-how-fleet_adapterpy-works)
+6. [Create the Adapter and Fleet](#6-create-the-adapter-and-fleet)
+7. [Configure and Register a Robot](#7-configure-and-register-a-robot)
+8. [Register Robot Callbacks](#8-register-robot-callbacks)
+9. [Connect a Real Robot Through](#9-connect-a-real-robot-through-robotclientapipy) `RobotClientAPI.py`
+10. [Configure the Robot API Client](#10-configure-the-robot-api-client)
+11. [Check the Robot Connection](#11-check-the-robot-connection)
+12. [Handle Localization](#12-handle-localization)
+13. [Handle Navigation Requests](#13-handle-navigation-requests)
+14. [Report Navigation Completion](#14-report-navigation-completion)
+15. [Handle Robot Actions](#15-handle-robot-actions)
+16. [Handle Stop Requests](#16-handle-stop-requests)
+17. [Read Robot Telemetry](#17-read-robot-telemetry)
+18. [Return the Robot Position](#18-return-the-robot-position)
+19. [Return the Battery State](#19-return-the-battery-state)
+20. [Return the Current Map](#20-return-the-current-map)
+21. [Build](#21-build-robotupdatedata) `RobotUpdateData`
+22. [Publish Robot State and Driving Status](#22-publish-robot-state-and-driving-status)
+23. [Coordinate Frames](#23-coordinate-frames)
+24. [Thread Safety](#24-thread-safety)
+25. [Start and Stop the Adapter](#25-start-and-stop-the-adapter)
+26. [Example Real-Robot Migration](#26-example-real-robot-migration)
+27. [Build the Python Bindings and Example](#27-build-the-python-bindings-and-example)
+28. [Run the Example](#28-run-the-example)
+29. [Test the Migration](#29-test-the-migration)
+30. [Migration Summary](#30-migration-summary)
+31. [Experimental Limitations](#31-experimental-limitations)
+
+
 
 ## 1. Scope
 
@@ -58,837 +103,1275 @@ flowchart LR
 
 Your robot driver, vendor SDK, REST/gRPC client, telemetry polling, and completion detection can usually remain unchanged. Only the layer that dispatches commands and publishes state changes.
 
-## 3. Python API Mapping
+## 3. Example Files
 
-Import the migration API:
+The complete Python fleet adapter example is located under:
 
-```python
-from vda5050_core_python import rmf_migration
+```
+examples/python/fleet_adapter/
 ```
 
-A conceptual mapping between the APIs is shown below.
+It contains:
 
-
-| Open-RMF Python concept                           | `vda5050_core_python` concept                                   |
-| ------------------------------------------------- | --------------------------------------------------------------- |
-| `rmf_adapter.Adapter`                             | `rmf_migration.Adapter`                                         |
-| `adapter.add_easy_fleet(config)`                  | `adapter.add_vda5050_fleet(config)`                             |
-| `EasyFullControlConfiguration`                    | `rmf_migration.FleetConfiguration`                              |
-| `fleet.add_robot(name, state, config, callbacks)` | `rmf_migration.FleetUpdateHandle.add_robot(...)`                |
-| `RobotCallbacks(navigate, stop, execute_action)`  | `rmf_migration.RobotCallbacks(navigate, stop, action_executor)` |
-| `RobotState(map, position, battery_soc)`          | `rmf_migration.RobotState(map, position, battery_soc)`          |
-| `Destination` (goal handed to `navigate`)         | `rmf_migration.Destination`                                     |
-| `CommandExecution.finished()`                     | `rmf_migration.CommandExecution.finished()`                     |
-| `ActivityIdentifier`                              | `rmf_migration.ActivityIdentifier`                              |
-| `RobotUpdateHandle.update_position(...)`          | `rmf_migration.RobotUpdateHandle.update(state)`                 |
-| Fleet name in RMF config                          | Manufacturer + serial number in MQTT topics                     |
-| RMF traffic schedule                              | Orders generated and coordinated by master control              |
-
-
-This mapping is conceptual rather than one-to-one because Open-RMF and VDA5050 divide system responsibilities differently.
-
-## 4. Keep the Robot API Independent
-
-Before replacing the adapter, separate the robot-specific implementation from Open-RMF. The robot API should use ordinary Python types and should not import `rmf_adapter` or `vda5050_core_python`.
-
-```python
-# robot_api.py
-from typing import Optional
-
-
-class RobotAPI:
-    """Robot-specific interface independent of RMF and VDA5050."""
-
-    def navigate(self, x: float, y: float, theta: float, map_id: str) -> None:
-        """Send a navigation command to the robot."""
-        ...
-
-    def stop(self) -> None:
-        """Stop the robot."""
-        ...
-
-    def execute_action(self, action_type: str, params: dict) -> None:
-        """Start a robot-specific action."""
-        ...
-
-    def position(self) -> tuple[float, float, float]:
-        """Returns (x, y, theta) in the robot frame."""
-        ...
-
-    def map_id(self) -> str:
-        ...
-
-    def battery_soc(self) -> float:
-        """0.0 - 1.0"""
-        ...
-
-    def is_moving(self) -> bool:
-        ...
-
-    def navigation_completed(self) -> bool: ...
-    def navigation_failed(self) -> bool: ...
-    def action_completed(self) -> bool: ...
-    def action_failed(self) -> bool: ...
+```
+fleet_adapter.py
+RobotClientAPI.py
+config.yaml
+README.md
 ```
 
-This allows the same robot API to be reused after replacing the adapter.
+Each file has a different responsibility.
 
-## 5. Replace Adapter Setup and Create Fleet Configuration
 
-**Old (Open-RMF):**
+| File                | Purpose                                                              | Expected changes                      |
+| ------------------- | -------------------------------------------------------------------- | ------------------------------------- |
+| `fleet_adapter.py`  | Connects VDA5050 callbacks and state updates to the robot API        | Usually kept unchanged                |
+| `RobotClientAPI.py` | Provides robot-specific commands, telemetry, and completion checks   | Replace the print-only implementation |
+| `config.yaml`       | Configures the fleet, MQTT broker, robot identity, and initial state | Replace with deployment values        |
 
-```python
-from rmf_adapter import Adapter
-from rmf_adapter.easy_full_control import EasyFullControlConfiguration
 
-adapter = Adapter.make("my_fleet_adapter")
-config = EasyFullControlConfiguration.from_config_files(config_yaml, nav_graph)
-fleet = adapter.add_easy_fleet(config)
+The main migration work should be performed in `RobotClientAPI.py`, not by rewriting the VDA5050 adapter.
+
+## 4. Configure the Fleet and Robot
+
+The example uses the following YAML structure:
+
 ```
+rmf_fleet:
+  name: "demo_fleet"
+  update_rate_hz: 5.0
+  robot_state_update_interval: 30
 
-**New (**`vda5050_core_python`**):**
+  robots:
+    robot_1:
+      manufacturer: "Manufacturer"
+      serial_number: "S001"
+      interface_name: "uagv"
+      version: "2.0.0"
+      battery_soc: 1.0
+      travel_time: 2.0
 
-```python
-from vda5050_core_python.rmf_migration import (
-    Adapter,
-    FleetConfiguration,
-    RobotConfiguration,
-)
+      start:
+        map_name: "map_1"
+        x: 0.0
+        y: 0.0
+        theta: 0.0
 
-# NOTE: Adapter.make is a static factory. Check rmf_migration.hpp for its argument
-adapter = Adapter.make()
-
-fleet_config = FleetConfiguration(
-    fleet_name="my_fleet",
-    broker_uri="tcp://localhost:1883",
-    client_id_prefix="my-vda5050-adapter",
-    update_interval=30,          # optional, defaults to 30
-)
-
-fleet = adapter.add_vda5050_fleet(fleet_config)   # -> FleetUpdateHandle
-```
-
-`FleetConfiguration` fields are all mutable after construction:
-
-```python
-fleet_config.fleet_name = "my_fleet"
-fleet_config.broker_uri = "tcp://mqtt.example.com:1883"
-fleet_config.client_id_prefix = "my-vda5050-adapter"
-fleet_config.update_interval = 15
+fleet_manager:
+  broker_uri: "tcp://localhost:1883"
+  client_id_prefix: "demo_fleet_adapter"
 ```
 
 
 
-## 6. Configure Robot's VDA5050 Identity
-
-Each robot requires a RobotConfiguration:
-
-```python
-robot_config = RobotConfiguration(
-    manufacturer="MyCompany",
-    serial_number="AGV-001",
-    interface_name="uagv",   # default
-    version="2.0.0",         # default
-)
-robot_config.factsheet = factsheet_object   # optional
-```
-
-These four values define the MQTT topic identity:
+### 4.1 Fleet settings
 
 ```
-uagv/v2/MyCompany/AGV-001/order
-uagv/v2/MyCompany/AGV-001/instantActions
-uagv/v2/MyCompany/AGV-001/state
-uagv/v2/MyCompany/AGV-001/connection
+rmf_fleet:
+  name: "demo_fleet"
+  update_rate_hz: 5.0
+  robot_state_update_interval: 30
 ```
 
-The `client_id_prefix` is combined per robot to produce MQTT client IDs. Every client ID must be unique at the broker. If you run two adapters against one broker, give them different prefixes.
+- `name` is the fleet name used by the adapter.
+- `update_rate_hz` controls how often the adapter reads robot data and checks command completion.
+- `robot_state_update_interval` is the maximum VDA5050 state heartbeat interval in seconds.
 
-## 7. Pre-register Known Robots
+For example, an update rate of `5.0` means the adapter checks robot state approximately five times per second.
 
-A robot configuration may be stored in the fleet configuration before the robot is added. `known_robots` is exposed as a read-only property.
-
-```python
-fleet_config.add_known_robot_configuration("tinyRobot1", robot_config)
-
-# Retrieve later
-cfg = fleet_config.get_known_robot_configuration("tinyRobot1")
-
-# All registered robots
-for name in fleet_config.known_robots:
-    print(name)
-```
-
-
-
-## 8. Handle Navigation Requests
-
-The navigation callback receives a destination and a command-execution handle.
-
-```python
-from vda5050_core_python.rmf_migration import Destination, CommandExecution
-
-active_navigation: CommandExecution | None = None
-
-
-def navigate(destination: Destination, execution: CommandExecution) -> None:
-    """NavigationRequest callback.
-
-    Verify the exact signature against rmf_migration.hpp — the C++ typedef is
-    NavigationRequest and this mirrors rmf_adapter's easy_full_control convention.
-    """
-    global active_navigation
-
-    x, y = destination.xy          # or destination.position -> (x, y, yaw)
-    yaw = destination.yaw
-    map_id = destination.map
-
-    if destination.speed_limit is not None:
-        robot_api.set_speed_limit(destination.speed_limit)
-
-    robot_api.navigate(x, y, yaw, map_id)
-    active_navigation = execution
-```
-
-`Destination` is read-only. Available properties, all from the bindings:
-
-
-| Property      | Meaning                           |
-| ------------- | --------------------------------- |
-| `map`         | Map / VDA5050 `mapId` of the goal |
-| `position`    | Full pose, `(x, y, yaw)`          |
-| `xy`          | Planar position only              |
-| `yaw`         | Orientation                       |
-| `graph_index` | Nav-graph waypoint index, if any  |
-| `name`        | Waypoint name, if any             |
-| `speed_limit` | Optional speed limit for this leg |
-
-
-**Do not call** `execution.finished()` **right after dispatching the command.** Hold the handle until the robot has physically arrived, and report from your telemetry loop:
-
-```python
-def check_navigation_completion() -> None:
-    global active_navigation
-    if active_navigation is None:
-        return
-
-    if robot_api.navigation_completed():
-        active_navigation.finished()
-        active_navigation = None
-    elif robot_api.navigation_failed():
-        active_navigation.failed("Robot could not reach the requested node")
-        active_navigation = None
-```
-
-The adapter waits for the current execution to finish before issuing the next request.
-
-### 8.1 `CommandExecution` API
-
-```python
-execution.finished()                 # success
-execution.failed("reason string")    # failure with a reason
-execution.okay()                     # -> bool, is this handle still valid/current?
-execution.is_finished()              # -> bool, whether completion has already been reported
-execution.identifier                 # -> ActivityIdentifier (read-only)
-```
-
-Use `okay()` before acting on a stored execution handle:
+### 4.2 Robot identity
 
 ```
-if execution.okay():
-    execution.finished()
-```
-
-This helps avoid updating an execution that is no longer active.
-
-### 8.2 `ActivityIdentifier`
-
-An `ActivityIdentifier` can contain an order ID and an action ID. Both arguments are optional.
-
-```python
-from vda5050_core_python.rmf_migration import ActivityIdentifier
-
-ident = execution.identifier
-print(ident.order_id)    # Optional[str], read-only
-print(ident.action_id)   # Optional[str], read-only
-
-# Constructing one directly (both arguments optional):
-ident = ActivityIdentifier(order_id="order-123", action_id=None)
-
-# Equality is bound, so this works:
-if execution.identifier == expected_ident:
-    ...
-```
-
-
-
-## 9. Handle Stop Requests
-
-The stop callback should stop the robot and clear any corresponding local execution state.
-
-```python
-def stop(activity: ActivityIdentifier) -> None:
-    """StopRequest callback. Confirm the argument type in rmf_migration.hpp."""
-    global active_navigation
-    robot_api.stop()
-    if active_navigation is not None and active_navigation.identifier == activity:
-        active_navigation = None
-```
-
-The exact argument type and callback signature should be confirmed using the Python-generated documentation:
-
-```
-help(vda5050_core_python.rmf_migration.RobotCallbacks)
-```
-
-## 10. Handle Robot Actions
-
-Store the execution handle until the robot reports that the action has finished or failed.
-
-```python
-active_action: CommandExecution | None = None
-
-SUPPORTED_ACTIONS = {"pick", "drop", "wait"}
-
-
-def action_executor(
-    category: str,
-    description: dict,
-    execution: CommandExecution,
-) -> None:
-    """ActionExecutor callback. Confirm the signature in rmf_migration.hpp."""
-    global active_action
-
-    if category not in SUPPORTED_ACTIONS:
-        execution.failed(f"Unsupported action: {category}")
-        return
-
-    robot_api.execute_action(category, description)
-    active_action = execution
-```
-
-Report action completion from the robot status loop:
-
-```python
-def check_action_completion() -> None:
-    global active_action
-    if active_action is None:
-        return
-
-    if robot_api.action_completed():
-        active_action.finished()
-        active_action = None
-    elif robot_api.action_failed():
-        active_action.failed("Robot action failed")
-        active_action = None
-```
-
-The exact parameters of `ActionExecutor` should be verified against the current Python bindings before deployment.
-
-## 11. Assemble the callbacks
-
-Create a `RobotCallbacks` object:
-
-```python
-from vda5050_core_python.rmf_migration import RobotCallbacks
-
-callbacks = RobotCallbacks(
-    navigate=navigate,
-    stop=stop,
-    action_executor=action_executor,
-)
-```
-
-All three are required positional/keyword arguments. They are exposed read-only afterwards (`callbacks.navigate`, `callbacks.stop`, `callbacks.action_executor`).
-
-## 12. Optional Localization Callback
-
-The localization callback is optional and can be assigned after constructing `RobotCallbacks`.
-
-```python
-def localize(destination: Destination, execution: CommandExecution) -> None:
-    robot_api.set_initial_pose(*destination.position, destination.map)
-    execution.finished()
-
-callbacks.localize = localize     # optional; omit if the robot self-localizes
-```
-
-Omit this callback when the robot performs localization independently.
-
-## 13. Register the robot
-
-Add the robot to the fleet:
-
-```python
-from vda5050_core_python.rmf_migration import RobotState
-
-initial_state = RobotState(
-    map="L1",
-    position=[0.0, 0.0, 0.0],   # array<double,3> -> any 3-element sequence
-    battery_soc=0.95,           # 0.0 - 1.0
-)
-
-robot_handle = fleet.add_robot(
-    "tinyRobot1",
-    initial_state,
-    robot_config,
-    callbacks,
-)   # -> RobotUpdateHandle
-```
-
-> The Python binding for `add_robot()` does not expose named arguments. Therefore, pass the arguments positionally. Verify against `rmf_migration.hpp`.
-
-
-
-## 14. Create the Robot State Updates
-
-
-
-### 14.1 High level: `RobotUpdateHandle.update()`
-
-```python
-def update_robot_state() -> None:
-    x, y, theta = robot_api.position()
-    state = RobotState(
-        map=robot_api.map_id(),
-        position=[x, y, theta],
-        battery_soc=robot_api.battery_soc(),
-    )
-    robot_handle.update(state)
-```
-
-`RobotState` fields are mutable, so you can also reuse one object:
-
-```python
-state.map = "L2"
-state.position = [1.5, 2.0, 1.57]
-state.battery_state_of_charge = 0.82
-robot_handle.update(state)
-```
-
-Note the asymmetry: the constructor keyword is `battery_soc`, but the property is `battery_state_of_charge`.
-
-### 14.2 Low level: `client.StateManager`
-
-`RobotState` only carries map, pose, and battery SoC. For everything else VDA5050 publishes (velocity, safety state, operating mode, errors, information, load) reach for `StateManager`. `RobotUpdateHandle.more()` is the escape hatch that exposes the extended API:
-
-```python
-extended = robot_handle.more()
-```
-
-> `more()` is bound as a lambda returning `self.more()`. Inspect what it returns on your branch (`type(extended)`, `dir(extended)`). In the RMF convention this is the "unstable" extended handle, and it is the natural place for the `StateManager` to hang off. If it is not reachable from there, construct the client adapter directly via the `client` submodule instead.
-
-Once you have a `StateManager`:
-
-```python
-from vda5050_core_python.client import (
-    BatteryState,
-    OperatingMode,
-    SafetyState,
-    EStop,
-    Velocity,
-)
-
-state_manager.set_position(current_x, current_y, current_theta, current_map_id)
-state_manager.set_driving(robot_api.is_moving())
-state_manager.set_paused(False)
-state_manager.set_operating_mode(OperatingMode.AUTOMATIC)
-state_manager.set_distance_since_last_node(3.42)
-state_manager.set_new_base_request(False)
-
-velocity = Velocity()
-velocity.vx = 0.4
-velocity.vy = 0.0
-velocity.omega = 0.1
-state_manager.set_velocity(velocity)
-
-battery = BatteryState()
-battery.battery_charge = 82.0      # percent
-battery.battery_voltage = 24.6
-battery.battery_health = 95
-battery.charging = False
-battery.reach = 12000              # metres
-state_manager.set_battery_state(battery)
-
-safety = SafetyState()
-safety.e_stop = EStop.NONE
-safety.field_violation = False
-state_manager.set_safety_state(safety)
-```
-
-The adapter owns order-related fields (`orderId`, `nodeStates`, `edgeStates`, `lastNodeId`).
-
-### 14.3 Errors and information
-
-```python
-from vda5050_core_python.client import (
-    Error, ErrorLevel, ErrorReference,
-    Info, InfoLevel, InfoReference,
-)
-
-ref = ErrorReference()
-ref.reference_key = "nodeId"
-ref.reference_value = "node-7"
-
-error = Error()
-error.error_type = "navigationBlocked"
-error.error_references = [ref]                 # list, via pybind11/stl
-error.error_description = "Path blocked by obstacle for 30s"
-error.error_level = ErrorLevel.WARNING
-
-state_manager.add_error(error)
-# state_manager.set_errors([error])   # replace the whole list
-# state_manager.clear_errors()
-
-info_ref = InfoReference()
-info_ref.reference_key = "sensor"
-info_ref.reference_value = "lidar_front"
-
-info = Info()
-info.info_type = "diagnostics"
-info.info_references = [info_ref]
-info.info_description = "Front lidar reporting reduced range"
-info.info_level = InfoLevel.DEBUG
-
-state_manager.add_information(info)
-# state_manager.set_information([info])
-# state_manager.remove_information("diagnostics")
-```
-
-
-
-### 14.4 Action states
-
-If you manage VDA5050 action states directly rather than through `CommandExecution`:
-
-```python
-from vda5050_core_python.client import ActionState, ActionStatus
-
-action_state = ActionState()
-action_state.action_id = "action-42"
-action_state.action_type = "pick"
-action_state.action_description = "Pick pallet from station A"
-action_state.action_status = ActionStatus.RUNNING
-action_state.result_description = ""
-
-state_manager.add_action_state(action_state)
-# state_manager.set_action_states([action_state])
-# state_manager.clear_action_states()
-```
-
-`ActionStatus` values: `WAITING`, `INITIALIZING`, `RUNNING`, `PAUSED`, `FINISHED`, `FAILED`.
-
-All `client` types bind `__eq__` and `__ne__`, so `==` comparisons work as expected. They also all have a default constructor and mutable fields, build them field by field, not via keyword arguments.
-
-## 15. Coordinate Frames
-
-The robot frame and the VDA5050 map layout must agree. These must be consistent with the master-control layout:
-
-- map ID
-- x position
-- y position
-- orientation
-- distance units
-- angle units
-
-If the robot uses a different frame, convert **at the robot API boundary**: before sending a navigation command, and before building a `RobotState` or calling `set_position()`:
-
-```python
-def to_vda_frame(x: float, y: float, theta: float) -> tuple[float, float, float]:
-    return (x * SCALE + OFFSET_X, y * SCALE + OFFSET_Y, theta + ROTATION)
-
-
-def to_robot_frame(x: float, y: float, theta: float) -> tuple[float, float, float]:
-    return ((x - OFFSET_X) / SCALE, (y - OFFSET_Y) / SCALE, theta - ROTATION)
-```
-
-Keep coordinate transformations in one place to avoid inconsistent state and navigation data.
-
-## 16. Start and Stop the Adapter
-
-Register all callbacks and add all robots **before** starting the adapter.
-
-```python
-import time
-
-adapter.start()
-
-try:
-    while running:
-        update_robot_state()
-        check_navigation_completion()
-        check_action_completion()
-        time.sleep(0.1)
-except KeyboardInterrupt:
-    pass
-finally:
-    adapter.stop()
-```
-
-Because callbacks are invoked from C++ threads, guard any shared state:
-
-```python
-import threading
-
-lock = threading.Lock()
-
-def navigate(destination, execution):
-    global active_navigation
-    with lock:
-        robot_api.navigate(*destination.position, destination.map)
-        active_navigation = execution
-```
-
-
-
-## 17. Configuration Changes
-
-Drop settings that only mean something to Open-RMF: schedule participants, traffic negotiation, finishing requests, RMF task configuration, nav graph references used for traffic. Add MQTT and VDA5050 identity:
-
-yaml
-
-```yaml
-fleet:
-  name: my_fleet
-  update_interval: 30
-
-mqtt:
-  broker_uri: tcp://localhost:1883
-  client_id_prefix: my-vda5050-adapter
-
 robots:
-  tinyRobot1:
-    manufacturer: MyCompany
-    serial_number: AGV-001
-    interface_name: uagv
+  robot_1:
+    manufacturer: "Manufacturer"
+    serial_number: "S001"
+    interface_name: "uagv"
     version: "2.0.0"
 ```
 
-Loading it:
+- `robot_1` is the local name used by the Python adapter.
+- `manufacturer` is the VDA5050 manufacturer identity.
+- `serial_number` uniquely identifies the robot.
+- `interface_name` is normally `uagv`.
+- `version` is the VDA5050 protocol version used in the MQTT topic.
 
-```python
-import yaml
-from vda5050_core_python.rmf_migration import FleetConfiguration, RobotConfiguration
+These values form topics such as:
 
-with open("config.yaml") as f:
-    cfg = yaml.safe_load(f)
+```
+uagv/v2/Manufacturer/S001/order
+uagv/v2/Manufacturer/S001/instantActions
+uagv/v2/Manufacturer/S001/state
+uagv/v2/Manufacturer/S001/connection
+```
 
-fleet_config = FleetConfiguration(
-    fleet_name=cfg["fleet"]["name"],
-    broker_uri=cfg["mqtt"]["broker_uri"],
-    client_id_prefix=cfg["mqtt"]["client_id_prefix"],
-    update_interval=cfg["fleet"].get("update_interval", 30),
+The manufacturer and serial number must match the values used by the VDA5050 master control.
+
+### 4.3 Initial robot state
+
+```
+start:
+  map_name: "map_1"
+  x: 0.0
+  y: 0.0
+  theta: 0.0
+```
+
+This defines the robot state used when it is first registered.
+
+The map name and coordinate frame must match the map used by the VDA5050 master control.
+
+### 4.4 MQTT connection
+
+```
+fleet_manager:
+  broker_uri: "tcp://localhost:1883"
+  client_id_prefix: "demo_fleet_adapter"
+```
+
+- `broker_uri` is the VDA5050 MQTT broker address.
+- `client_id_prefix` is used to generate MQTT client IDs.
+
+MQTT client IDs must be unique. Use a different prefix when running multiple adapters against the same broker.
+
+### 4.5 Print-only settings
+
+The following settings are used only by the simulated robot:
+
+```
+battery_soc: 1.0
+travel_time: 2.0
+```
+
+- `battery_soc` provides an initial simulated battery level.
+- `travel_time` controls the simulated delay before a navigation command is considered complete.
+
+`travel_time` should normally be removed when connecting a real robot.
+
+The real battery value should be retrieved from robot telemetry.
+
+## 5. How `fleet_adapter.py` Works
+
+`fleet_adapter.py` contains the generic VDA5050 integration logic.
+
+It:
+
+1. loads the YAML configuration;
+2. creates the VDA5050 adapter;
+3. creates the fleet;
+4. registers robots;
+5. registers command callbacks;
+6. forwards commands to `RobotAPI`;
+7. reads robot telemetry;
+8. reports command completion;
+9. publishes robot state;
+10. starts and stops the adapter.
+
+Most robot-specific integrations should not need to modify this structure.
+
+## 6. Create the Adapter and Fleet
+
+The migration API is imported through the Python bindings:
+
+```
+import vda5050_core_python as vda
+
+rmf = vda.rmf_migration
+```
+
+Create the adapter:
+
+```
+adapter = rmf.Adapter.make()
+```
+
+Create the fleet configuration using positional arguments:
+
+```
+fleet_config = rmf.FleetConfiguration(
+    fleet_name,
+    broker_uri,
+    client_id_prefix,
+    update_interval,
+)
+```
+
+In the example, these values are loaded from YAML:
+
+```
+fleet_config = rmf.FleetConfiguration(
+    fleet_cfg["name"],
+    conn["broker_uri"],
+    conn["client_id_prefix"],
+    int(fleet_cfg.get("robot_state_update_interval", 30)),
+)
+```
+
+Add the VDA5050 fleet:
+
+```
+fleet_handle = adapter.add_vda5050_fleet(fleet_config)
+```
+
+The returned `FleetUpdateHandle` is used to register robots.
+
+## 7. Configure and Register a Robot
+
+Create the initial robot state:
+
+```
+initial_state = rmf.RobotState(
+    start["map_name"],
+    [
+        float(start["x"]),
+        float(start["y"]),
+        float(start["theta"]),
+    ],
+    float(robot_config.get("battery_soc", 1.0)),
+)
+```
+
+`RobotState` contains:
+
+1. map name;
+2. pose as `[x, y, theta]`;
+3. battery state of charge from `0.0` to `1.0`.
+
+Create the robot identity:
+
+```
+robot_config = rmf.RobotConfiguration(
+    manufacturer,
+    serial_number,
+    interface_name,
+    version,
+)
+```
+
+For example:
+
+```
+robot_config = rmf.RobotConfiguration(
+    rcfg["manufacturer"],
+    rcfg["serial_number"],
+    rcfg.get("interface_name", "uagv"),
+    rcfg.get("version", "2.0.0"),
+)
+```
+
+Register the robot:
+
+```
+robot_handle = fleet_handle.add_robot(
+    robot_name,
+    initial_state,
+    robot_config,
+    callbacks,
+)
+```
+
+The arguments must be passed positionally.
+
+The returned `RobotUpdateHandle` is used to publish state and driving information.
+
+## 8. Register Robot Callbacks
+
+The example creates the required callbacks as follows:
+
+```
+callbacks = rmf.RobotCallbacks(
+    self.navigate,
+    self.stop,
+    self.execute_action,
 )
 
-for name, r in cfg["robots"].items():
-    fleet_config.add_known_robot_configuration(
-        name,
-        RobotConfiguration(
-            manufacturer=r["manufacturer"],
-            serial_number=r["serial_number"],
-            interface_name=r.get("interface_name", "uagv"),
-            version=r.get("version", "2.0.0"),
-        ),
+callbacks.localize = self.localize
+```
+
+The required callbacks are:
+
+- navigation;
+- stop;
+- action execution.
+
+Localization is optional and is assigned after constructing `RobotCallbacks`.
+
+These callbacks translate requests from the VDA5050 adapter into calls to `RobotClientAPI.py`.
+
+## 9. Connect a Real Robot Through `RobotClientAPI.py`
+
+`RobotClientAPI.py` contains a print-only robot implementation.
+
+It currently:
+
+- stores the robot pose in memory;
+- stores a simulated battery value;
+- prints navigation, localization, stop, and action requests;
+- uses a timer to simulate navigation;
+- reports completion without requiring hardware or a simulator.
+
+To connect a real robot, replace the simulated code with calls to the robot's:
+
+- REST API;
+- vendor Python SDK;
+- ROS 2 topics;
+- ROS 2 services;
+- ROS 2 actions;
+- gRPC interface;
+- TCP interface;
+- fleet manager API.
+
+The public method signatures should remain compatible with `fleet_adapter.py`.
+
+## 10. Configure the Robot API Client
+
+The constructor currently initializes the simulated robot state:
+
+```
+def __init__(self, config_yaml):
+    self.config_yaml = config_yaml
+    self.timeout = 5.0
+    self.debug = False
+```
+
+A real implementation can initialize a vendor client, HTTP session, ROS 2 node, or other connection.
+
+For example:
+
+```
+def __init__(self, config_yaml):
+    self.config_yaml = config_yaml
+    self.timeout = 5.0
+
+    robot_api_config = config_yaml["robot_api"]
+    self.base_url = robot_api_config["base_url"]
+    self.auth_token = robot_api_config["auth_token"]
+
+    self.client = VendorRobotClient(
+        base_url=self.base_url,
+        auth_token=self.auth_token,
+        timeout=self.timeout,
     )
 ```
 
-The YAML structure is application-specific. The Python bindings do not currently expose an equivalent to Open-RMF's `from_config_files()` helper.
+The exact implementation depends on the robot interface.
 
-## 18. Build the Python Bindings
+## 11. Check the Robot Connection
 
-The module is a pybind11 extension named `vda5050_core_python`, built from `vda5050_core/python/bindings.cpp`. Build it with the rest of the package:
+Implement:
 
-```bash
-colcon build --packages-select vda5050_core --cmake-args -DBUILD_PYTHON=ON
+```
+def check_connection(self) -> bool:
+    """Return True if communication with the robot is available."""
+```
+
+The print-only example always returns `True`.
+
+A real implementation should perform a health check or verify that the robot interface is reachable.
+
+Example:
+
+```
+def check_connection(self) -> bool:
+    try:
+        return self.client.is_connected()
+    except Exception:
+        return False
+```
+
+The method should return:
+
+- `True` when communication is available;
+- `False` when the robot or fleet manager cannot be reached.
+
+## 12. Handle Localization
+
+The fleet adapter forwards an `initPosition` request through:
+
+```
+def localize(self, destination, execution):
+    if self.api.localize(
+        self.name,
+        destination.position,
+        destination.map,
+    ):
+        execution.finished()
+    else:
+        execution.failed("Robot rejected the localization request")
+```
+
+Implement the following method in `RobotClientAPI.py`:
+
+```
+def localize(
+    self,
+    robot_name: str,
+    pose,
+    map_name: str,
+) -> bool:
+```
+
+The method receives:
+
+- `robot_name`: local robot name;
+- `pose`: `[x, y, theta]`;
+- `map_name`: requested map ID.
+
+A real implementation should send the initial pose to the robot localization system.
+
+Example:
+
+```
+def localize(self, robot_name, pose, map_name) -> bool:
+    x, y, theta = pose
+
+    return self.client.set_initial_pose(
+        robot_name=robot_name,
+        map_name=map_name,
+        x=x,
+        y=y,
+        theta=theta,
+    )
+```
+
+Return `True` only when the robot accepts the localization request.
+
+When the method returns `False`, the adapter calls:
+
+```
+execution.failed("Robot rejected the localization request")
+```
+
+The localization callback may be omitted when the robot performs localization independently and does not support external initial-pose requests.
+
+## 13. Handle Navigation Requests
+
+The navigation callback receives:
+
+- a `Destination`;
+- a `CommandExecution` handle.
+
+The working adapter uses:
+
+```
+def navigate(self, destination, execution):
+    with self._lock:
+        self.execution = execution
+
+    x, y = destination.xy
+
+    self.api.navigate(
+        self.name,
+        [x, y, destination.yaw],
+        destination.map,
+    )
+```
+
+The destination provides:
+
+- `destination.xy`: target `x` and `y`;
+- `destination.yaw`: target orientation;
+- `destination.position`: complete `[x, y, yaw]` pose;
+- `destination.map`: destination map ID.
+
+The execution handle is stored until the robot reaches the destination.
+
+### 13.1 Implement the robot navigation command
+
+Implement:
+
+```
+def navigate(
+    self,
+    robot_name: str,
+    pose,
+    map_name: str,
+    speed_limit=0.0,
+) -> bool:
+```
+
+The method receives:
+
+- robot name;
+- target pose `[x, y, theta]`;
+- target map name;
+- optional speed limit.
+
+Example:
+
+```
+def navigate(
+    self,
+    robot_name,
+    pose,
+    map_name,
+    speed_limit=0.0,
+) -> bool:
+    x, y, theta = pose
+
+    return self.client.send_navigation_goal(
+        robot_name=robot_name,
+        map_name=map_name,
+        x=x,
+        y=y,
+        theta=theta,
+        speed_limit=speed_limit,
+    )
+```
+
+`navigate()` should normally submit the command and return without waiting for the robot to arrive.
+
+Do not block the callback for the full duration of robot movement.
+
+Navigation completion is reported asynchronously through `is_command_completed()`.
+
+## 14. Report Navigation Completion
+
+The adapter stores the `CommandExecution` handle when navigation starts:
+
+```
+self.execution = execution
+```
+
+During each update cycle, it checks:
+
+```
+if self.api.is_command_completed(self.name):
+    completed_execution = execution
+    self.execution = None
+```
+
+After leaving the lock, it reports completion:
+
+```
+if completed_execution is not None:
+    completed_execution.finished()
+```
+
+Implement:
+
+```
+def is_command_completed(self, robot_name: str) -> bool:
+```
+
+A real implementation should check the robot's navigation status.
+
+Example:
+
+```
+def is_command_completed(self, robot_name: str) -> bool:
+    status = self.client.get_navigation_status(robot_name)
+    return status == "COMPLETED"
+```
+
+Return `True` only when the robot has physically completed the current navigation command.
+
+Do not return `True` immediately after the robot accepts the command.
+
+### Current limitation
+
+The example returns only `True` or `False`. It does not distinguish between:
+
+- command still running;
+- command completed;
+- command failed.
+
+A production integration may need separate completion and failure reporting so that it can call:
+
+```
+execution.finished()
+```
+
+or:
+
+```
+execution.failed("Navigation failed")
+```
+
+as appropriate.
+
+## 15. Handle Robot Actions
+
+The action callback in the working example is:
+
+```
+def execute_action(
+    self,
+    action_type,
+    action_id,
+    execution,
+):
+    self.api.start_activity(
+        self.name,
+        action_type,
+        action_id,
+    )
+
+    execution.finished()
+```
+
+The callback receives:
+
+- `action_type`: robot action category;
+- `action_id`: VDA5050 action identifier;
+- `execution`: command execution handle.
+
+Implement:
+
+```
+def start_activity(
+    self,
+    robot_name: str,
+    activity: str,
+    label: str,
+) -> bool:
+```
+
+Example robot actions may include:
+
+- `pick`;
+- `drop`;
+- `dock`;
+- `charge`;
+- `wait`;
+- operating a robot attachment.
+
+Example:
+
+```
+def start_activity(
+    self,
+    robot_name,
+    activity,
+    label,
+) -> bool:
+    return self.client.execute_action(
+        robot_name=robot_name,
+        action_type=activity,
+        action_id=label,
+    )
+```
+
+
+
+### Current action limitation
+
+The example calls:
+
+```
+execution.finished()
+```
+
+immediately after forwarding the action.
+
+This is suitable only when:
+
+- the action completes immediately;
+- accepting the request is considered completion;
+- the adapter is being used as a simple demonstration.
+
+For a long-running action, such as picking a pallet, store the action execution handle and report completion only when the robot confirms that the action has finished.
+
+For example:
+
+```
+def execute_action(self, action_type, action_id, execution):
+    accepted = self.api.start_activity(
+        self.name,
+        action_type,
+        action_id,
+    )
+
+    if not accepted:
+        execution.failed(f"Robot rejected action: {action_type}")
+        return
+
+    with self._lock:
+        self.action_execution = execution
+```
+
+The update loop would then check action completion before calling `finished()`.
+
+## 16. Handle Stop Requests
+
+The callback is defined as:
+
+```
+def stop(self):
+    self.api.stop(self.name)
+
+    with self._lock:
+        self.execution = None
+```
+
+Implement:
+
+```
+def stop(self, robot_name: str) -> bool:
+```
+
+Example:
+
+```
+def stop(self, robot_name: str) -> bool:
+    return self.client.stop_robot(robot_name)
+```
+
+
+
+### Current stop limitation
+
+The current VDA5050 core does not invoke this callback during normal operation.
+
+The method is included so the integration can support stop or cancellation when that flow is connected through the core.
+
+Do not depend on this callback as an emergency-stop mechanism.
+
+Safety-critical stopping must be handled by the robot's own safety system.
+
+## 17. Read Robot Telemetry
+
+The adapter periodically calls:
+
+```
+data = robot.api.get_data(robot.name)
+```
+
+It then constructs a VDA5050 robot state:
+
+```
+state = rmf.RobotState(
+    data.map_name,
+    data.position,
+    data.battery_soc,
+)
+```
+
+A real robot integration must provide:
+
+- current map name;
+- current pose `[x, y, theta]`;
+- battery state of charge.
+
+## 18. Return the Robot Position
+
+Implement:
+
+```
+def position(self, robot_name: str) -> list[float]:
+```
+
+Return:
+
+```
+[x, y, theta]
+```
+
+Example:
+
+```
+def position(self, robot_name: str) -> list[float]:
+    status = self.client.get_robot_status(robot_name)
+
+    return [
+        status.x,
+        status.y,
+        status.theta,
+    ]
+```
+
+The position must be expressed in the same coordinate system expected by the VDA5050 master.
+
+## 19. Return the Battery State
+
+Implement:
+
+```
+def battery_soc(self, robot_name: str) -> float:
+```
+
+Return a value between:
+
+```
+0.0 and 1.0
+```
+
+For example:
+
+```
+def battery_soc(self, robot_name: str) -> float:
+    status = self.client.get_robot_status(robot_name)
+    return status.battery_percentage / 100.0
+```
+
+A robot battery value of `82%` should be returned as:
+
+```
+0.82
+```
+
+## 20. Return the Current Map
+
+Implement:
+
+```
+def get_map_name(self, robot_name: str) -> str:
+```
+
+Example:
+
+```
+def get_map_name(self, robot_name: str) -> str:
+    status = self.client.get_robot_status(robot_name)
+    return status.map_name
+```
+
+The returned map name must match the `mapId` used by the VDA5050 master control.
+
+## 21. Build `RobotUpdateData`
+
+The example combines the robot telemetry into:
+
+```
+class RobotUpdateData:
+    def __init__(
+        self,
+        robot_name: str,
+        map_name: str,
+        position: list[float],
+        battery_soc: float,
+    ):
+        self.robot_name = robot_name
+        self.position = position
+        self.map_name = map_name
+        self.battery_soc = battery_soc
+```
+
+Implement:
+
+```
+def get_data(self, robot_name: str):
+```
+
+Example:
+
+```
+def get_data(self, robot_name: str):
+    status = self.client.get_robot_status(robot_name)
+
+    if status is None:
+        return None
+
+    return RobotUpdateData(
+        robot_name=robot_name,
+        map_name=status.map_name,
+        position=[
+            status.x,
+            status.y,
+            status.theta,
+        ],
+        battery_soc=status.battery_percentage / 100.0,
+    )
+```
+
+Return `None` when valid telemetry is temporarily unavailable.
+
+The adapter skips the update when `None` is returned.
+
+## 22. Publish Robot State and Driving Status
+
+The update loop creates a `RobotState`:
+
+```
+state = rmf.RobotState(
+    data.map_name,
+    data.position,
+    data.battery_soc,
+)
+```
+
+The robot adapter then creates an empty activity identifier:
+
+```
+identifier = rmf.ActivityIdentifier()
+```
+
+When a command is active, it uses the current execution identifier:
+
+```
+identifier = execution.identifier
+driving = True
+```
+
+The state is published using:
+
+```
+self.robot_handle.update(state, identifier)
+```
+
+Driving status is reported using:
+
+```
+self.robot_handle.more().set_driving(driving)
+```
+
+The activity identifier associates the reported state with the current command.
+
+Do not replace this with only:
+
+```
+robot_handle.update(state)
+```
+
+The working example provides both the state and activity identifier.
+
+## 23. Coordinate Frames
+
+The robot coordinate frame and VDA5050 map coordinate frame must agree.
+
+Confirm that both systems use consistent:
+
+- map IDs;
+- x coordinates;
+- y coordinates;
+- orientation conventions;
+- distance units;
+- angle units.
+
+For example, confirm whether:
+
+- distance is measured in metres;
+- angles are measured in radians;
+- positive rotation is clockwise or counter-clockwise;
+- the origin is located at the same point;
+- the same map name is used by the robot and master control.
+
+If the robot uses a different coordinate frame, convert coordinates at the `RobotClientAPI` boundary.
+
+Before sending a command to the robot:
+
+```
+def to_robot_frame(x, y, theta):
+    return (
+        (x - OFFSET_X) / SCALE,
+        (y - OFFSET_Y) / SCALE,
+        theta - ROTATION,
+    )
+```
+
+Before reporting robot telemetry to VDA5050:
+
+```
+def to_vda5050_frame(x, y, theta):
+    return (
+        x * SCALE + OFFSET_X,
+        y * SCALE + OFFSET_Y,
+        theta + ROTATION,
+    )
+```
+
+Keep transformations in one place to prevent navigation commands and reported states from using different coordinate systems.
+
+## 24. Thread Safety
+
+Callbacks may be invoked from C++ worker threads while the Python update loop runs separately.
+
+The example protects shared command state using:
+
+```
+self._lock = threading.Lock()
+```
+
+For example:
+
+```
+with self._lock:
+    self.execution = execution
+```
+
+The update loop also uses the same lock when checking or clearing the execution handle.
+
+Use locking when sharing:
+
+- active execution handles;
+- command status;
+- cached telemetry;
+- action state;
+- connection state.
+
+Avoid holding the lock while performing a slow REST request or waiting for a robot response.
+
+## 25. Start and Stop the Adapter
+
+Register all fleets, robots, and callbacks before starting the adapter.
+
+Start it with:
+
+```
+adapter.start()
+```
+
+The example starts a separate update thread:
+
+```
+updater = threading.Thread(
+    target=update_loop,
+    daemon=True,
+)
+
+updater.start()
+```
+
+During shutdown:
+
+```
+stop_event.set()
+updater.join(timeout=2.0)
+adapter.stop()
+```
+
+The adapter should always be stopped cleanly, including after `SIGINT` or `SIGTERM`.
+
+## 26. Example Real-Robot Migration
+
+A real `RobotClientAPI.py` may follow this structure:
+
+```
+class RobotAPI:
+
+    def __init__(self, config_yaml):
+        robot_api_config = config_yaml["robot_api"]
+
+        self.client = VendorRobotClient(
+            host=robot_api_config["host"],
+            port=robot_api_config["port"],
+        )
+
+    def check_connection(self) -> bool:
+        return self.client.is_connected()
+
+    def localize(self, robot_name, pose, map_name) -> bool:
+        x, y, theta = pose
+
+        return self.client.set_initial_pose(
+            robot_name,
+            map_name,
+            x,
+            y,
+            theta,
+        )
+
+    def navigate(
+        self,
+        robot_name,
+        pose,
+        map_name,
+        speed_limit=0.0,
+    ) -> bool:
+        x, y, theta = pose
+
+        return self.client.navigate(
+            robot_name,
+            map_name,
+            x,
+            y,
+            theta,
+            speed_limit,
+        )
+
+    def start_activity(
+        self,
+        robot_name,
+        activity,
+        label,
+    ) -> bool:
+        return self.client.execute_action(
+            robot_name,
+            activity,
+            label,
+        )
+
+    def stop(self, robot_name) -> bool:
+        return self.client.stop(robot_name)
+
+    def position(self, robot_name) -> list[float]:
+        status = self.client.get_status(robot_name)
+        return [status.x, status.y, status.theta]
+
+    def battery_soc(self, robot_name) -> float:
+        status = self.client.get_status(robot_name)
+        return status.battery_percentage / 100.0
+
+    def get_map_name(self, robot_name) -> str:
+        status = self.client.get_status(robot_name)
+        return status.map_name
+
+    def is_command_completed(self, robot_name) -> bool:
+        status = self.client.get_navigation_status(robot_name)
+        return status == "COMPLETED"
+
+    def get_data(self, robot_name):
+        status = self.client.get_status(robot_name)
+
+        if status is None:
+            return None
+
+        return RobotUpdateData(
+            robot_name,
+            status.map_name,
+            [status.x, status.y, status.theta],
+            status.battery_percentage / 100.0,
+        )
+```
+
+`VendorRobotClient` is only a placeholder. Replace it with the actual robot API or SDK.
+
+## 27. Build the Python Bindings and Example
+
+Build the package:
+
+```
+source /opt/ros/jazzy/setup.bash
+
+colcon build \
+  --packages-select vda5050_core
+
 source install/setup.bash
 ```
 
-## 19. Complete Example
+Confirm that the Python module imports:
 
-```python
-#!/usr/bin/env python3
-"""Minimal VDA5050 fleet adapter using vda5050_core_python.rmf_migration."""
-
-import threading
-import time
-
-from vda5050_core_python.rmf_migration import (
-    Adapter,
-    CommandExecution,
-    Destination,
-    FleetConfiguration,
-    RobotCallbacks,
-    RobotConfiguration,
-    RobotState,
-)
-
-from robot_api import RobotAPI
-
-robot_api = RobotAPI()
-lock = threading.Lock()
-active_navigation: CommandExecution | None = None
-active_action: CommandExecution | None = None
-
-
-def navigate(destination: Destination, execution: CommandExecution) -> None:
-    global active_navigation
-    with lock:
-        x, y = destination.xy
-        robot_api.navigate(x, y, destination.yaw, destination.map)
-        active_navigation = execution
-
-
-def stop(activity) -> None:
-    global active_navigation
-    with lock:
-        robot_api.stop()
-        active_navigation = None
-
-
-def action_executor(category: str, description: dict,
-                    execution: CommandExecution) -> None:
-    global active_action
-    with lock:
-        if category not in ("pick", "drop"):
-            execution.failed(f"Unsupported action: {category}")
-            return
-        robot_api.execute_action(category, description)
-        active_action = execution
-
-
-def poll() -> None:
-    global active_navigation, active_action
-    with lock:
-        if active_navigation is not None:
-            if robot_api.navigation_completed():
-                active_navigation.finished()
-                active_navigation = None
-            elif robot_api.navigation_failed():
-                active_navigation.failed("Could not reach requested node")
-                active_navigation = None
-
-        if active_action is not None:
-            if robot_api.action_completed():
-                active_action.finished()
-                active_action = None
-            elif robot_api.action_failed():
-                active_action.failed("Robot action failed")
-                active_action = None
-
-
-def publish_state(handle) -> None:
-    x, y, theta = robot_api.position()
-    handle.update(
-        RobotState(
-            map=robot_api.map_id(),
-            position=[x, y, theta],
-            battery_soc=robot_api.battery_soc(),
-        )
-    )
-
-
-def main() -> None:
-    adapter = Adapter.make()
-
-    fleet_config = FleetConfiguration(
-        fleet_name="my_fleet",
-        broker_uri="tcp://localhost:1883",
-        client_id_prefix="my-vda5050-adapter",
-        update_interval=30,
-    )
-
-    robot_config = RobotConfiguration(
-        manufacturer="MyCompany",
-        serial_number="AGV-001",
-        interface_name="uagv",
-        version="2.0.0",
-    )
-    fleet_config.add_known_robot_configuration("tinyRobot1", robot_config)
-
-    fleet = adapter.add_vda5050_fleet(fleet_config)
-
-    callbacks = RobotCallbacks(
-        navigate=navigate,
-        stop=stop,
-        action_executor=action_executor,
-    )
-
-    x, y, theta = robot_api.position()
-    handle = fleet.add_robot(
-        "tinyRobot1",
-        RobotState(robot_api.map_id(), [x, y, theta], robot_api.battery_soc()),
-        robot_config,
-        callbacks,
-    )
-
-    adapter.start()
-    try:
-        while True:
-            poll()
-            publish_state(handle)
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        adapter.stop()
-
-
-if __name__ == "__main__":
-    main()
+```
+python3 -c "import vda5050_core_python"
 ```
 
----
+## 28. Run the Example
 
-## 20. Test the Migration
+Start a local Mosquitto broker:
 
-Start a local broker:
-
-```bash
-mosquitto -d
+```
+mosquitto -v
 ```
 
-Run your adapter:
+Run the fleet adapter:
 
-```bash
-python3 my_fleet_adapter.py
+```
+ros2 run vda5050_core fleet_adapter
 ```
 
-Watch the topics from another terminal:
+To use a custom configuration file:
 
-```bash
-mosquitto_sub -t 'uagv/v2/MyCompany/AGV-001/#' -v
+```
+ros2 run vda5050_core fleet_adapter \
+  --config_file /path/to/config.yaml
 ```
 
-Publish a test order:
+Run the example order publisher:
 
-```bash
-mosquitto_pub -t 'uagv/v2/MyCompany/AGV-001/order' -f test_order.json
 ```
-
-Or use the packaged examples:
-
-```bash
 ros2 run vda5050_core order_publisher
 ```
 
-Verify:
+Monitor all robot topics:
 
-- the Python module imports successfully
-- the adapter connects to the MQTT broker
-- the expected VDA5050 topics are used
-- orders reach the client
-- the navigation callback is triggered
-- destinations contain valid map and position values
-- actions reach the action callback
-- state updates are published
-- navigation completion is reported
-- action completion is reported
-- navigation failures are handled
-- action failures are handled
-- stop requests stop the corresponding robot activity
-- the adapter shuts down cleanly
+```
+mosquitto_sub \
+  -t 'uagv/v2/Manufacturer/S001/#' \
+  -v
+```
 
-## 18. Experimental Limitations
+Replace `Manufacturer` and `S001` with the configured robot identity.
+
+## 29. Test the Migration
+
+Verify the integration in the following order.
+
+### Configuration
+
+- The YAML file loads successfully.
+- The MQTT broker URI is correct.
+- The manufacturer and serial number match the master control.
+- The initial map and pose are valid.
+- MQTT client IDs are unique.
+
+
+
+### Adapter startup
+
+- The Python module imports successfully.
+- The adapter connects to the MQTT broker.
+- The robot is registered.
+- The expected order topic is printed.
+- No callback registration errors occur.
+
+
+
+### Localization
+
+- An `initPosition` request reaches `RobotAPI.localize()`.
+- The map and pose are correct.
+- Successful localization calls `execution.finished()`.
+- Rejected localization calls `execution.failed()`.
+
+
+
+### Navigation
+
+- A VDA5050 order reaches the navigation callback.
+- The destination contains the expected map and pose.
+- `RobotAPI.navigate()` sends the command to the robot.
+- The callback returns without waiting for physical arrival.
+- Robot telemetry changes while the robot moves.
+- `is_command_completed()` becomes `True` only after arrival.
+- The adapter calls `execution.finished()` after completion.
+- The next navigation request is dispatched only after the current one finishes.
+
+
+
+### Robot state
+
+- `get_data()` returns the correct map.
+- Position is reported as `[x, y, theta]`.
+- Battery state of charge is between `0.0` and `1.0`.
+- The adapter publishes state updates.
+- Driving state is `True` during movement.
+- Driving state becomes `False` after completion.
+
+
+
+### Actions
+
+- Action type and action ID reach `start_activity()`.
+- Unsupported actions are handled by the robot integration.
+- Long-running actions are not marked complete immediately in a production integration.
+
+
+
+### Shutdown
+
+- `SIGINT` and `SIGTERM` stop the update loop.
+- The update thread exits.
+- `adapter.stop()` completes without errors.
+- MQTT connections close cleanly.
+
+
+
+## 30. Migration Summary
+
+To migrate an existing Open-RMF robot integration:
+
+1. copy or use the provided Python fleet adapter example;
+2. update the MQTT, fleet, and robot identity in `config.yaml`;
+3. keep the generic VDA5050 logic in `fleet_adapter.py`;
+4. replace the print-only methods in `RobotClientAPI.py`;
+5. connect navigation, localization, actions, stop, and telemetry to the real robot;
+6. report navigation completion only after physical arrival;
+7. verify coordinate frames and map names;
+8. test the complete MQTT command and state flow.
+
+The main robot-specific integration point is `RobotClientAPI.py`. The fleet adapter should remain a thin bridge between VDA5050 callbacks and the robot interface.
+
+## 31. Experimental Limitations
 
 The Python migration API is experimental.
 
