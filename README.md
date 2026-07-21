@@ -19,6 +19,8 @@ Robot SDK / REST API / ROS 2 Integration
 
 > **Status:** This project is under active development.
 
+
+
 ## Features
 
 - **VDA5050 message types** represented as plain C++ structs.
@@ -29,6 +31,8 @@ Robot SDK / REST API / ROS 2 Integration
 - **A high-level AGV client adapter** for navigation, actions and state reporting.
 - **Layout Interchange Format support** for loading and validating facility graphs.
 - **Python bindings**, including helpers for migrating Open-RMF fleet adapters.
+
+
 
 ## Documentation
 
@@ -46,42 +50,42 @@ To connect an existing robot SDK, REST API or ROS 2 navigation system, start wit
 
 To understand or extend the library architecture, start with the [Design Guide](vda5050_core/docs/design.md).
 
-## Requirements
+## Getting Started
+
+### Requirements
 
 - C++17
 - CMake 3.8 or newer
-- [Eclipse Paho MQTT C++](https://github.com/eclipse-paho/paho.mqtt.cpp)
-- [nlohmann/json](https://github.com/nlohmann/json)
-- [fmt](https://github.com/fmtlib/fmt)
+- Eclipse Paho MQTT C++
+- `nlohmann/json`
+- `fmt`
 - `pybind11` when building the Python bindings
 - `vda5050_interfaces` when `ENABLE_ROS2=ON`
 
-The package uses `ament_cmake` and is tested with ROS 2 Humble and Jazzy, GCC and Clang.
+### Build
 
-## Building
+Install the required MQTT dependencies:
 
-Install the package dependencies in a sourced ROS 2 environment:
-
-```bash
+```
 sudo apt update
-sudo apt install python3-rosdep ros-${ROS_DISTRO}-ament-cmake-python
+sudo apt install libpaho-mqtt-dev libpaho-mqttpp-dev
 ```
 
-Create a workspace and build the package:
+Create a workspace, clone the repository and build the package:
 
-```bash
+```
 mkdir -p ~/vda5050_ws/src
 cd ~/vda5050_ws/src
 
 git clone https://github.com/ros-industrial/vda5050_core.git
 
 cd ~/vda5050_ws
-rosdep install --from-paths src --ignore-src -r -y
 colcon build --packages-select vda5050_core
 source install/setup.bash
 ```
 
-### Build Options
+#### Build Options
+
 
 | Option           | Default | Effect                                                  |
 | ---------------- | ------- | ------------------------------------------------------- |
@@ -91,19 +95,11 @@ source install/setup.bash
 | `BUILD_TESTING`  | `ON`    | Builds the tests and configured linters                 |
 
 
-For example, enable ROS 2 message support with:
-
-```bash
-colcon build \
-  --packages-select vda5050_core \
-  --cmake-args -DENABLE_ROS2=ON
-```
-
-## Quick Start
+### Basic Usage
 
 The following example shows the basic setup for an AGV-side client.
 
-It creates the MQTT transport and VDA5050 client adapter, then registers a navigation callback. In a real application, the callback should forward the request to the robot's navigation system.
+It creates an MQTT transport and a VDA5050 client adapter, then registers a navigation callback. In a real application, the callback should forward the request to the robot's navigation system.
 
 ```cpp
 #include <iostream>
@@ -162,7 +158,7 @@ target_link_libraries(
 )
 ```
 
-For a complete integration covering navigation, actions, localization, cancellation and state reporting, see the [Client Adapter Guide](vda5050_core/docs/client-adapter.md) and [`vda5050_core/examples/client/adapter_example.cpp`](vda5050_core/examples/client/adapter_example.cpp).
+For a complete integration covering navigation, actions, localization, cancellation and state reporting, see the [Client Adapter Guide](vda5050_core/docs/client-adapter.md) and `[vda5050_core/examples/client/adapter_example.cpp](vda5050_core/examples/client/adapter_example.cpp)`.
 
 ## Examples
 
@@ -172,6 +168,7 @@ The following examples can be run against a local MQTT broker:
 mosquitto -v
 ```
 
+
 | Example                                                   | Demonstrates                              |
 | --------------------------------------------------------- | ----------------------------------------- |
 | `vda5050_core/examples/client/adapter_example.cpp`        | AGV client-adapter integration            |
@@ -180,6 +177,8 @@ mosquitto -v
 | `vda5050_core/examples/execution/engine_example.cpp`      | Event queues and wait conditions          |
 | `vda5050_core/examples/execution/provider_example.cpp`    | Update broadcasting                       |
 | `vda5050_core/examples/execution/custom_base.cpp`         | Defining custom updates and events        |
+
+
 
 
 ## Repository Structure
@@ -202,6 +201,8 @@ vda5050_core/
   test/           Unit and integration tests
   docs/           Documentation
 ```
+
+
 
 ## Testing
 
