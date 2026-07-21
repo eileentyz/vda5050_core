@@ -52,6 +52,8 @@ To understand or extend the library architecture, start with the [Design Guide](
 
 ## Getting Started
 
+
+
 ### Requirements
 
 - C++17
@@ -61,6 +63,8 @@ To understand or extend the library architecture, start with the [Design Guide](
 - `fmt`
 - `pybind11` when building the Python bindings
 - `vda5050_interfaces` when `ENABLE_ROS2=ON`
+
+
 
 ### Build
 
@@ -84,6 +88,8 @@ colcon build --packages-select vda5050_core
 source install/setup.bash
 ```
 
+
+
 #### Build Options
 
 
@@ -93,6 +99,8 @@ source install/setup.bash
 | `BUILD_PYTHON`   | `ON`    | Builds the Python bindings                              |
 | `BUILD_EXAMPLES` | `ON`    | Builds the examples                                     |
 | `BUILD_TESTING`  | `ON`    | Builds the tests and configured linters                 |
+
+
 
 
 ### Basic Usage
@@ -158,7 +166,7 @@ target_link_libraries(
 )
 ```
 
-For a complete integration covering navigation, actions, localization, cancellation and state reporting, see the [Client Adapter Guide](vda5050_core/docs/client-adapter.md) and `[vda5050_core/examples/client/adapter_example.cpp](vda5050_core/examples/client/adapter_example.cpp)`.
+For a complete integration covering navigation, actions, localization, cancellation and state reporting, see the [Client Adapter Guide](vda5050_core/docs/client-adapter.md) and [vda5050_core/examples/client/adapter_example.cpp](vda5050_core/examples/client/adapter_example.cpp).
 
 ## Examples
 
